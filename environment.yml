@@ -13,5 +13,6 @@ dependencies:
   - jupyterlab
   - tqdm
   - psutil
+  - lxml
   - pip:
     - obspy

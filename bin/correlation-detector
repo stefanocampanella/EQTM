@@ -37,6 +37,7 @@ parser.add_argument("--cc_filter_threshold", help="Correlation threshold per cha
 parser.add_argument("--sample_tolerance", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--loglevel", help="Log level", default='error')
 parser.add_argument("--num_threads", help="Number of threads to use", type=int, default=0)
+parser.add_argument("--progress_bar", help="Show progress bar", type=bool, default=None)
 cli_args = parser.parse_args()
 
 logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.loglevel.upper()))
@@ -46,7 +47,7 @@ if __name__ == '__main__':
     data = read_data(cli_args.data, freqmin=cli_args.lowpass_freq, freqmax=cli_args.highpass_freq)
     templates = tqdm(read_templates(cli_args.templates, cli_args.travel_times, cli_args.catalog),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
-                     disable=None)
+                     disable=cli_args.progress_bar)
     max_workers = cli_args.num_threads if cli_args.num_threads > 0 else cpu_count(logical=False)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         events = []
