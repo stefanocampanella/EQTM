@@ -15,7 +15,9 @@ export ROOT=$(git rev-parse --show-toplevel)
 export PYTHONPATH=$ROOT:$PYTHONPATH
 export PATH=$ROOT/bin:$PATH
 
-cd "$ROOT/data/test" || exit
-srun -n 1 correlation-detector data/2010-07-23.mseed ttimes templates templates.zmap test.stats "$@"
+cp "$ROOT/data/test" "$TMPDIR/test"
+cd "$TMPDIR/test" || exit
+srun -n 1 correlation-detector data/2010-07-23.mseed ttimes templates templates.zmap "$@"
+cp "$TMPDIR/test/$1" "$ROOT/$1"
 
 exit
