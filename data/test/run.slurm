@@ -16,6 +16,6 @@ export PYTHONPATH=$ROOT:$PYTHONPATH
 export PATH=$ROOT/bin:$PATH
 
 cd "$ROOT/data/test" || exit
-srun -n 1 correlation-detector data/2010-07-23.mseed ttimes templates templates.zmap test.stats
+srun -n 1 correlation-detector data/2010-07-23.mseed ttimes templates templates.zmap test.stats "$@"
 
 exit
