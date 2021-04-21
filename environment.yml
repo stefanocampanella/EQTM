@@ -1,0 +1,17 @@
+name: correlation-detector
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - bottleneck
+  - jupyterlab
+  - tqdm
+  - psutil
+  - pip:
+    - obspy
