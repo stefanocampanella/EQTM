@@ -18,7 +18,7 @@ export ROOT=$(git rev-parse --show-toplevel)
 export PYTHONPATH=$ROOT:$PYTHONPATH
 export PATH=$ROOT/bin:$PATH
 
-cp -r  "$ROOT/data/test" "$TMPDIR"
+rsync -a  "$ROOT/data/test/" "$TMPDIR"
 cd "$TMPDIR" || exit
 srun -n 1 correlation-detector data/2010-07-23.mseed ttimes templates templates.zmap "$@"
 cp "$TMPDIR/$1" "$ROOT/$1"
