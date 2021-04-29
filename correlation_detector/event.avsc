@@ -1,0 +1,11 @@
+{
+  "name": "event",
+  "type": "record",
+  "fields": [
+    {"name": "template", "type": "int"},
+    {"name": "timestamp", "type": "float"},
+    {"name": "height", "type": "float"},
+    {"name": "dmad", "type": "float"},
+    {"name": "channels", "type": {"type": "array" , "items": "channel"}}
+  ]
+}

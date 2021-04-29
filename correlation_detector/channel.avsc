@@ -1,0 +1,9 @@
+{
+  "name": "channel",
+  "type": "record",
+  "fields": [
+    {"name": "id", "type": "string"},
+    {"name": "correlation", "type": "float"},
+    {"name": "shift", "type": "int"}
+  ]
+}
