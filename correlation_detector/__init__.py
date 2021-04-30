@@ -4,16 +4,12 @@ import re
 from collections import OrderedDict
 from math import log10, nan
 from pathlib import Path
-from typing import Tuple, Dict, List, Generator, Callable, Iterator
+from typing import Tuple, Dict, Generator, Callable, Iterator
 
 import bottleneck as bn
 import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace
-
-TemplateReadTuple = Tuple[int, Stream, Dict[str, int], float]
-CorrelationFix = Tuple[str, float, int]
-Event = Tuple[int, datetime.datetime, float, float, float, float, List[CorrelationFix]]
 
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
@@ -29,7 +25,7 @@ def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
 
 
 def read_templates(templates_directory: Path, ttimes_directory: Path,
-                   catalog_path: Path) -> Generator[TemplateReadTuple, None, None]:
+                   catalog_path: Path) -> Generator[Tuple[int, Stream, Dict, float], None, None]:
     logging.info(f"Reading catalog from {catalog_path}")
     template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
     logging.info(f"Reading travel times from {ttimes_directory}")
@@ -123,7 +119,7 @@ def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
 
 def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
                    travel_times: Dict[str, float], tolerance: int = 6, magnitude_mad_factor: float = 2.0,
-                   mapf: Callable = map) -> Generator[Event, None, None]:
+                   mapf: Callable = map) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
@@ -139,7 +135,7 @@ def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, tem
         yield {'timestamp': event_date.datetime.timestamp(), 'magnitude': mag, 'channels': channels}
 
 
-def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> CorrelationFix:
+def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> Tuple[str, float, int]:
     lower = max(trigger_sample - tolerance, 0)
     upper = min(trigger_sample + tolerance + 1, len(trace.data))
     sample_shift = bn.nanargmax(trace.data[lower:upper]) - tolerance
@@ -186,7 +182,7 @@ def add_template_info(detections, heights, template_number, template_magnitude, 
         yield detection
 
 
-def save_records(events: Iterator[Event], output: Path) -> None:
+def save_records(events: Iterator[Dict], output: Path) -> None:
     events_dataframe = pd.DataFrame.from_records(events, columns=['template', 'date', 'magnitude', 'correlation',
                                                                   'stack_height', 'stack_dmad', 'num_channels'])
     events_dataframe.sort_values(by=['template', 'date'], inplace=True)
