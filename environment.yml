@@ -14,5 +14,6 @@ dependencies:
   - tqdm
   - psutil
   - lxml
+  - fastavro
   - pip:
     - obspy
