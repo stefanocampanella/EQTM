@@ -1,4 +1,4 @@
-import datetime
+from datetime import timedelta
 import logging
 import re
 from collections import OrderedDict
@@ -9,7 +9,7 @@ from typing import Tuple, Dict, Generator, Callable, Iterator
 import bottleneck as bn
 import numpy as np
 import pandas as pd
-from obspy import read, Stream, Trace
+from obspy import read, Stream, Trace, UTCDateTime
 
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
@@ -49,6 +49,7 @@ def read_templates(templates_directory: Path, ttimes_directory: Path,
                 logging.debug(f"Reading {template_path}")
                 with template_path.open('rb') as template_file:
                     template_stream = read(template_file, dtype=np.float32)
+                template_stream.merge(fill_value=0)
                 yield template_number, template_stream, travel_times, template_magnitudes.iloc[template_number - 1]
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
@@ -132,7 +133,7 @@ def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, tem
         channels = [{'id': trace_id, 'correlation': corr, 'shift': shift}
                     for trace_id, corr, shift in mapf(lambda trace: fix_correlation(trace, peak, tolerance),
                                                       correlations)]
-        yield {'timestamp': event_date.datetime.timestamp(), 'magnitude': mag, 'channels': channels}
+        yield {'timestamp': event_date.timestamp, 'magnitude': mag, 'channels': channels}
 
 
 def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> Tuple[str, float, int]:
@@ -156,9 +157,9 @@ def relative_magnitude(data_trace, template_trace, delta):
         return nan
 
 
-def estimate_magnitude(data: Stream, template: Stream, delta: datetime.timedelta,
+def estimate_magnitude(data: Stream, template: Stream, delta: timedelta,
                        mad_factor: float, mapf: Callable = map) -> float:
-    magnitudes = np.fromiter(mapf(lambda d, t: relative_magnitude(d, t, delta), data, template), dtype=np.float32)
+    magnitudes = np.fromiter(mapf(lambda d, t: relative_magnitude(d, t, delta), data, template), dtype=float)
     deviations = np.abs(magnitudes - bn.nanmedian(magnitudes))
     mad = bn.nanmedian(deviations)
     threshold = mad_factor * mad + np.finfo(mad).eps
@@ -182,14 +183,24 @@ def add_template_info(detections, heights, template_number, template_magnitude, 
         yield detection
 
 
-def save_records(events: Iterator[Dict], output: Path) -> None:
-    events_dataframe = pd.DataFrame.from_records(events, columns=['template', 'date', 'magnitude', 'correlation',
-                                                                  'stack_height', 'stack_dmad', 'num_channels'])
-    events_dataframe.sort_values(by=['template', 'date'], inplace=True)
-    events_dataframe['crt_pre'] = events_dataframe['stack_height'] / events_dataframe['stack_dmad']
-    events_dataframe['crt_post'] = events_dataframe['correlation'] / events_dataframe['stack_dmad']
+def add_channels_stats(events, threshold):
+    for event in events:
+        channels = event['channels']
+        num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
+        correlation = sum(channel['correlation'] for channel in channels) / len(channels)
+        event.update({'num_channels': num_channels, 'correlation': correlation})
+        yield event
+
+
+def save_stats(events: Iterator[Dict], output: Path) -> None:
+    df = pd.DataFrame.from_records(events, columns=['template', 'timestamp', 'magnitude', 'height',
+                                                    'dmad', 'correlation', 'num_channels'])
+    df.sort_values(by=['template', 'timestamp'], inplace=True)
+    df['timestamp'] = df['timestamp'].apply(lambda x: UTCDateTime(x).datetime)
+    df['crt_pre'] = df['height'] / df['dmad']
+    df['crt_post'] = df['correlation'] / df['dmad']
     logging.info(f"Writing outputs to {output}")
-    events_dataframe.to_csv(output, index=False, header=False, na_rep='NA', sep=' ',
-                            date_format='%Y-%m-%dT%H:%M:%S.%fZ',
-                            float_format='%.3f', columns=['template', 'date', 'magnitude', 'correlation', 'crt_post',
-                                                          'stack_height', 'crt_pre', 'num_channels'])
+    df.to_csv(output, index=False, header=False, na_rep='NA', sep=' ',
+              date_format='%Y-%m-%dT%H:%M:%S.%fZ',
+              float_format='%.3f', columns=['template', 'timestamp', 'magnitude', 'correlation', 'crt_post',
+                                            'height', 'crt_pre', 'num_channels'])
