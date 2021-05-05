@@ -39,7 +39,7 @@ parser.add_argument("--cc_min_channels", help="Minimum number of channels with c
                     type=int, default=6)
 parser.add_argument("--cc_threshold", help="Correlation threshold per channels", type=float, default=0.35)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
-parser.add_argument("--log", help="Log level", default='error')
+parser.add_argument("--log", help="Log level", default='warning')
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
 parser.add_argument("--progress", help="Show progress bar", default=None, action='store_true')
 parser.add_argument("--json", help="Save output in json format", default=False, action='store_true')
