@@ -2,6 +2,7 @@
 import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from importlib import resources
 from pathlib import Path
 from time import perf_counter as timer
 
@@ -13,7 +14,6 @@ from scipy.signal import find_peaks
 from psutil import cpu_count
 from tqdm import tqdm
 from fastavro.schema import load_schema
-from fastavro import json_writer, writer
 
 import correlation_detector as cd
 
@@ -25,65 +25,77 @@ parser.add_argument("catalog", help="Path to event catalog", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels used for computing cross-correlation", type=int,
                     default=16)
-parser.add_argument("--lowpass_freq", help="Lowpass filter frequency", type=float, default=3.0)
-parser.add_argument("--highpass_freq", help="Highpass filter frequency", type=float, default=8.0)
-parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold",
-                    type=float, default=8.0)
-parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance",
-                    type=float, default=2.0)
-parser.add_argument("--magnitude_threshold_factor", help="Scale factor of channel magnitude MAD threshold", type=float,
+parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
+parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
+parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
+                    default=8.0)
+parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance", type=float,
+                    default=2.0)
+parser.add_argument("--mag_relative_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
 parser.add_argument("--min_std", help="Scale factor of correlation std min threshold", type=float, default=0.25)
 parser.add_argument("--max_std", help="Scale factor of correlation std max threshold", type=float, default=1.5)
 parser.add_argument("--cc_min_channels", help="Minimum number of channels with correlation above threshold",
                     type=int, default=6)
 parser.add_argument("--cc_threshold", help="Correlation threshold per channels", type=float, default=0.35)
-parser.add_argument("--sample_tolerance", help="Maximum lag in samples", type=int, default=6)
-parser.add_argument("--loglevel", help="Log level", default='error')
-parser.add_argument("--num_threads", help="Number of threads to use", type=int, default=0)
-parser.add_argument("--progress_bar", help="Show progress bar", type=bool, default=None)
-parser.add_argument("--jsonl", help="Save output in json format", default=False, action='store_true')
+parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
+parser.add_argument("--log", help="Log level", default='error')
+parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
+parser.add_argument("--progress", help="Show progress bar", default=None, action='store_true')
+parser.add_argument("--json", help="Save output in json format", default=False, action='store_true')
+parser.add_argument("--stop", help="Stop if an error occurs", default=False, action='store_true')
 cli_args = parser.parse_args()
 
-logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.loglevel.upper()))
+logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.log.upper()))
 
-schema = load_schema('../../correlation_detector/event.avsc')
+with resources.path('correlation_detector', 'event.avsc') as schema_path:
+    schema = load_schema(schema_path)
+
+if cli_args.json:
+    from fastavro import json_writer as writer
+    output = cli_args.output + '.jsonl'
+    mode = 'w'
+else:
+    from fastavro import writer
+    output = cli_args.output + '.avro'
+    mode = 'wb'
 
 if __name__ == '__main__':
     tic = timer()
-    data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass_freq, freqmax=cli_args.highpass_freq)
+    data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
     templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times, cli_args.catalog),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
-                     disable=cli_args.progress_bar)
+                     disable=cli_args.progress)
+    max_workers = cli_args.threads if cli_args.threads > 0 else cpu_count(logical=False)
     events = []
-    max_workers = cli_args.num_threads if cli_args.num_threads > 0 else cpu_count(logical=False)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        for index, template, travel_times, magnitude in templates:
-            data, template, travel_times = cd.match_traces(data_pool, template, travel_times, cli_args.max_channels)
-            correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, travel_times.values()))
-            cd.filter_data(correlations, data, template, travel_times, min_std=cli_args.min_std,
-                           max_std=cli_args.max_std, mapf=pool.map)
-            if correlations:
-                mean_correlation = bn.nanmean([trace.data for trace in correlations], axis=0)
-                dmad = bn.nanmean(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
-                height = cli_args.relative_height * dmad
-                distance = max(trace.stats.npts for trace in template)
-                peaks, properties = find_peaks(mean_correlation, height=height, distance=distance)
-                detections = cd.get_detections(peaks, correlations, data, template, travel_times,
-                                               tolerance=cli_args.sample_tolerance,
-                                               magnitude_mad_factor=cli_args.magnitude_threshold_factor,
-                                               mapf=pool.map)
-                detections = cd.filter_detections(detections, threshold=cli_args.cc_threshold,
-                                                  min_channels=cli_args.cc_min_channels)
-                detections = cd.add_template_info(detections, properties['peak_heights'], index, magnitude, dmad)
-                events.extend(detections)
-    if cli_args.json:
-        with open(cli_args.output + '.jsonl', 'w') as file:
-            logging.info(f"Writing output to {file.name}")
-            json_writer(file, schema, events)
-    else:
-        with open(cli_args.output + '.avro', 'wb') as file:
-            logging.info(f"Writing output to {file.name}")
-            writer(file, schema, events)
+        for index, template, ttimes, magnitude in templates:
+            try:
+                data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
+                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values()))
+                cd.filter_data(correlations, data, template, ttimes, min_std=cli_args.min_std,
+                               max_std=cli_args.max_std, mapf=pool.map)
+                if correlations:
+                    mean_correlation = bn.nanmean([trace.data for trace in correlations], axis=0)
+                    dmad = bn.nanmean(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
+                    height = cli_args.relative_height * dmad
+                    distance = max(trace.stats.npts for trace in template)
+                    peaks, properties = find_peaks(mean_correlation, height=height, distance=distance)
+                    detections = cd.get_detections(peaks, correlations, data, template, ttimes,
+                                                   tolerance=cli_args.tolerance,
+                                                   mag_relative_threshold=cli_args.mag_relative_threshold,
+                                                   mapf=pool.map)
+                    detections = cd.filter_detections(detections, threshold=cli_args.cc_threshold,
+                                                      min_channels=cli_args.cc_min_channels)
+                    detections = cd.add_template_info(detections, properties['peak_heights'], index, magnitude, dmad)
+                    events.extend(detections)
+            except Exception as error:
+                if cli_args.stop:
+                    raise error
+                else:
+                    logging.error(f"{error} occurred while processing template {index}")
+    with open(output, mode) as file:
+        logging.info(f"Writing output to {file.name}")
+        writer(file, schema, events)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")

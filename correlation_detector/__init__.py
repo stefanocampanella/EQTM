@@ -53,7 +53,6 @@ def read_templates(templates_directory: Path, ttimes_directory: Path,
                 yield template_number, template_stream, travel_times, template_magnitudes.iloc[template_number - 1]
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
-                continue
 
 
 def filter_data(correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
@@ -119,7 +118,7 @@ def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
 
 
 def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                   travel_times: Dict[str, float], tolerance: int = 6, magnitude_mad_factor: float = 2.0,
+                   travel_times: Dict[str, float], tolerance: int = 6, mag_relative_threshold: float = 2.0,
                    mapf: Callable = map) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
@@ -129,7 +128,7 @@ def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, tem
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
         delta = trigger_time - template_starttime
-        mag = estimate_magnitude(data, template, delta, mad_factor=magnitude_mad_factor, mapf=mapf)
+        mag = estimate_magnitude(data, template, delta, mad_factor=mag_relative_threshold, mapf=mapf)
         channels = [{'id': trace_id, 'correlation': corr, 'shift': shift}
                     for trace_id, corr, shift in mapf(lambda trace: fix_correlation(trace, peak, tolerance),
                                                       correlations)]
