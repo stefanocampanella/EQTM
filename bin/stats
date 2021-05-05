@@ -11,7 +11,7 @@ from correlation_detector import save_stats, add_channels_stats
 parser = argparse.ArgumentParser(prog="stats")
 parser.add_argument("input", help="Input file path")
 parser.add_argument("output", help="Output file path")
-parser.add_argument("--cc_threshold", help="Correlation threshold per channels", type=float, default=0.35)
+parser.add_argument("--threshold", help="Correlation threshold per channels", type=float, default=0.35)
 parser.add_argument("--loglevel", help="Log level", default='error')
 cli_args = parser.parse_args()
 
@@ -24,7 +24,7 @@ if __name__ == '__main__':
     with open(cli_args.input, 'rb') as file:
         logging.info(f"reading from {file.name}")
         events = reader(file, reader_schema=schema)
-        events = add_channels_stats(events, cli_args.cc_threshold)
+        events = add_channels_stats(events, cli_args.threshold)
         logging.info(f"writing to {cli_args.output}")
         save_stats(events, cli_args.output)
     toc = timer()
