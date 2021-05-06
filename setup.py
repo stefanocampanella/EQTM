@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="correlation-detector",
-    version="0.1",
+    version="0.1.1",
     author="Stefano Campanella",
     author_email="scampanella@inogs.it",
     description="Earthquake detection in continuous waveform data using template matching",
