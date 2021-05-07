@@ -29,7 +29,6 @@ if __name__ == '__main__':
         logging.info(f"reading from {file.name}")
         events = reader(file, reader_schema=schema)
         events = filter_detections(events, threshold=cli_args.threshold, min_channels=cli_args.min_channels)
-        logging.info(f"writing to {cli_args.output}")
         save_stats(events, cli_args.output)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
