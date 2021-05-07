@@ -35,9 +35,6 @@ parser.add_argument("--mag_relative_threshold", help="Scale factor of channel ma
                     default=2.0)
 parser.add_argument("--min_std", help="Scale factor of correlation std min threshold", type=float, default=0.25)
 parser.add_argument("--max_std", help="Scale factor of correlation std max threshold", type=float, default=1.5)
-parser.add_argument("--cc_min_channels", help="Minimum number of channels with correlation above threshold",
-                    type=int, default=6)
-parser.add_argument("--cc_threshold", help="Correlation threshold per channels", type=float, default=0.35)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--log", help="Log level", default='warning')
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
@@ -85,8 +82,6 @@ if __name__ == '__main__':
                                                    tolerance=cli_args.tolerance,
                                                    mag_relative_threshold=cli_args.mag_relative_threshold,
                                                    mapf=pool.map)
-                    detections = cd.filter_detections(detections, threshold=cli_args.cc_threshold,
-                                                      min_channels=cli_args.cc_min_channels)
                     detections = cd.add_template_info(detections, properties['peak_heights'], index, magnitude, dmad)
                     events.extend(detections)
             except Exception as error:

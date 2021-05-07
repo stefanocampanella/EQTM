@@ -165,14 +165,6 @@ def estimate_magnitude(data: Stream, template: Stream, delta: timedelta,
     return bn.nanmean(magnitudes[deviations < threshold])
 
 
-def filter_detections(detections, threshold: float = 0.35, min_channels: int = 6):
-    for detection in detections:
-        channels = detection['channels']
-        num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
-        if num_channels >= min_channels:
-            yield detection
-
-
 def add_template_info(detections, heights, template_number, template_magnitude, dmad):
     for detection, height in zip(detections, heights):
         detection.update({'template': template_number,
@@ -182,13 +174,14 @@ def add_template_info(detections, heights, template_number, template_magnitude, 
         yield detection
 
 
-def add_channels_stats(events, threshold):
-    for event in events:
-        channels = event['channels']
+def filter_detections(detections, threshold: float = 0.35, min_channels: int = 6):
+    for detection in detections:
+        channels = detection['channels']
         num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
         correlation = sum(channel['correlation'] for channel in channels) / len(channels)
-        event.update({'num_channels': num_channels, 'correlation': correlation})
-        yield event
+        if num_channels >= min_channels:
+            detection.update({'num_channels': num_channels, 'correlation': correlation})
+            yield detection
 
 
 def save_stats(events: Iterator[Dict], output: Path) -> None:

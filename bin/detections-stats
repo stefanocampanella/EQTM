@@ -1,30 +1,34 @@
 #! /usr/bin/env python
 import argparse
 import logging
+from importlib import resources
 from time import perf_counter as timer
 
 from fastavro.schema import load_schema
 from fastavro import reader
 
-from correlation_detector import save_stats, add_channels_stats
+from correlation_detector import save_stats, filter_detections
 
 parser = argparse.ArgumentParser(prog="stats")
 parser.add_argument("input", help="Input file path")
 parser.add_argument("output", help="Output file path")
+parser.add_argument("--min_channels", help="Minimum number of channels with correlation above threshold",
+                    type=int, default=6)
 parser.add_argument("--threshold", help="Correlation threshold per channels", type=float, default=0.35)
-parser.add_argument("--loglevel", help="Log level", default='error')
+parser.add_argument("--log", help="Log level", default='error')
 cli_args = parser.parse_args()
 
-logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.loglevel.upper()))
+logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.log.upper()))
 
-schema = load_schema('../../correlation_detector/event.avsc')
+with resources.path('correlation_detector', 'event.avsc') as schema_path:
+    schema = load_schema(schema_path)
 
 if __name__ == '__main__':
     tic = timer()
     with open(cli_args.input, 'rb') as file:
         logging.info(f"reading from {file.name}")
         events = reader(file, reader_schema=schema)
-        events = add_channels_stats(events, cli_args.threshold)
+        events = filter_detections(events, threshold=cli_args.threshold, min_channels=cli_args.min_channels)
         logging.info(f"writing to {cli_args.output}")
         save_stats(events, cli_args.output)
     toc = timer()
