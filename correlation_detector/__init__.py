@@ -11,6 +11,19 @@ import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace, UTCDateTime
 
+try:
+    import cupy
+
+
+    def correlate(data, template, stream):
+        with stream:
+            cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
+        return cross_correlation
+except ImportError:
+    def correlate(data, template, stream):
+        return np.correlate(data, template, mode='valid')
+
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
     logging.info(f"Reading continuous data from {path}")
@@ -88,13 +101,13 @@ def find_trace(stream: Stream, trace_id: str):
             return trace
 
 
-def correlate_trace(continuous: Trace, template: Trace, delay: float) -> Trace:
+def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=None) -> Trace:
     header = {"network": continuous.stats.network,
               "station": continuous.stats.station,
               "channel": continuous.stats.channel,
               "starttime": continuous.stats.starttime,
               "sampling_rate": continuous.stats.sampling_rate}
-    trace = Trace(data=correlate_data(continuous.data, template.data), header=header)
+    trace = Trace(data=correlate_data(continuous.data, template.data, stream), header=header)
 
     duration = continuous.stats.endtime - continuous.stats.starttime
     starttime = trace.stats.starttime + delay
@@ -103,10 +116,10 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float) -> Trace:
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
     template = template - bn.nanmean(template)
     template_length = len(template)
-    cross_correlation = np.correlate(data, template, mode='valid')
+    cross_correlation = correlate(data, template, stream)
     pad = len(cross_correlation) - (len(data) - template_length)
     pad1, pad2 = (pad + 1) // 2, pad // 2
     data = np.hstack([np.zeros(pad1), data, np.zeros(pad2)])
