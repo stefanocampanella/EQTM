@@ -1,13 +1,11 @@
 #! /usr/bin/env bash
-#SBATCH --account IscrB_PALEOMIT
-#SBATCH --partition m100_usr_prod
-#SBATCH --qos=m100_qos_dbg
+#SBATCH --account=IscrB_PALEOMIT
+#SBATCH --partition=m100_usr_preempt 
 #SBATCH --time=00:05:00
-#SBATCH --nodes=1
-#SBATCH --tasks-per-node=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:1
-#SBATCH --mem-per-cpu=1GB
+#SBATCH --mem-per-cpu=800MB
 #SBATCH --hint=compute_bound
 #SBATCH --mail-type=ALL
 #SBATCH --verbose
@@ -19,6 +17,11 @@ export PYTHONPATH=$ROOT:$PYTHONPATH
 export PATH=$ROOT/bin:$PATH
 
 cd "$ROOT/data/test" || exit
-srun -n 1 correlation-detector data/2010-07-23.mseed ttimes templates templates.zmap "$@"
+for datafile in data/*.mseed
+do
+  bname=$(basename $datafile)
+  correlation-detector $datafile ttimes templates templates.zmap ${bname%.mseed} --threads=16 --log=debug &
+done
+wait
 
 exit
