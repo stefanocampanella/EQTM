@@ -15,6 +15,11 @@ from psutil import cpu_count
 from tqdm import tqdm
 from fastavro.schema import load_schema
 
+try:
+    import cupy
+except ImportError:
+    cupy = None
+
 import correlation_detector as cd
 
 parser = argparse.ArgumentParser(prog="correlation-detector")
@@ -57,11 +62,9 @@ else:
     output = cli_args.output + '.avro'
     mode = 'wb'
 
-try:
-    import cupy
-
+if cupy:
     streams = [cupy.cuda.Stream() for _ in range(cli_args.max_channels)]
-except ImportError:
+else:
     streams = [None for _ in range(cli_args.max_channels)]
 
 if __name__ == '__main__':
@@ -91,7 +94,7 @@ if __name__ == '__main__':
                                                    mapf=pool.map)
                     detections = cd.add_template_info(detections, properties['peak_heights'], index, magnitude, dmad)
                     events.extend(detections)
-            except Exception as error:
+            except BaseException as error:
                 if cli_args.stop:
                     raise error
                 else:

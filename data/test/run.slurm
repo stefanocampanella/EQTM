@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:1
-#SBATCH --mem-per-cpu=800MB
+#SBATCH --mem-per-cpu=1600MB
 #SBATCH --hint=compute_bound
 #SBATCH --mail-type=ALL
 #SBATCH --verbose

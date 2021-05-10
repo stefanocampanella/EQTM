@@ -13,14 +13,17 @@ from obspy import read, Stream, Trace, UTCDateTime
 
 try:
     import cupy
+except ImportError:
+    cupy = None
 
 
+if cupy:
     def correlate(data, template, stream):
         with stream:
             cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
             cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
         return cross_correlation
-except ImportError:
+else:
     def correlate(data, template, stream):
         return np.correlate(data, template, mode='valid')
 
