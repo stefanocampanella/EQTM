@@ -18,6 +18,7 @@ except ImportError:
 
 
 if cupy:
+    # noinspection PyUnresolvedReferences
     def correlate(data, template, stream):
         with stream:
             cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')

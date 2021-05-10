@@ -63,6 +63,7 @@ else:
     mode = 'wb'
 
 if cupy:
+    # noinspection PyUnresolvedReferences
     streams = [cupy.cuda.Stream() for _ in range(cli_args.max_channels)]
 else:
     streams = [None for _ in range(cli_args.max_channels)]
