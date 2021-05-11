@@ -3,17 +3,17 @@ import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
+from itertools import repeat
 from pathlib import Path
 from time import perf_counter as timer
 
 import bottleneck as bn
 import numpy as np
-from obspy import Stream, Trace
-
-from scipy.signal import find_peaks
-from psutil import cpu_count
-from tqdm import tqdm
 from fastavro.schema import load_schema
+from obspy import Stream
+from psutil import cpu_count
+from scipy.signal import find_peaks
+from tqdm import tqdm
 
 try:
     import cupy
@@ -73,9 +73,9 @@ if __name__ == '__main__':
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
     if cupy:
         # noinspection PyUnresolvedReferences
-        xdata_pool = Stream(traces=[Trace(data=cupy.asarray(trace.data)) for trace in data_pool])
+        cudata = {trace.id: cupy.asarray(trace.data) for trace in data_pool}
     else:
-        xdata_pool = data_pool
+        cudata = None
     templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times, cli_args.catalog),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
                      disable=cli_args.progress)
@@ -84,8 +84,9 @@ if __name__ == '__main__':
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for index, template, ttimes, magnitude in templates:
             try:
-                data, template, ttimes = cd.match_traces(xdata_pool, template, ttimes, cli_args.max_channels)
-                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
+                data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
+                correlations = Stream(traces=pool.map(cd.correlate_trace,
+                                                      data, template, ttimes.values(), streams, repeat(cudata)))
                 cd.filter_data(correlations, data, template, ttimes, min_std=cli_args.min_std,
                                max_std=cli_args.max_std, mapf=pool.map)
                 if correlations:
