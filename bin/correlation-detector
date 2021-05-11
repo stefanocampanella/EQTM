@@ -71,11 +71,6 @@ else:
 if __name__ == '__main__':
     tic = timer()
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
-    if cupy:
-        # noinspection PyUnresolvedReferences
-        cudata = {trace.id: cupy.asarray(trace.data) for trace in data_pool}
-    else:
-        cudata = None
     templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times, cli_args.catalog),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
                      disable=cli_args.progress)
@@ -85,8 +80,7 @@ if __name__ == '__main__':
         for index, template, ttimes, magnitude in templates:
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
-                correlations = Stream(traces=pool.map(cd.correlate_trace,
-                                                      data, template, ttimes.values(), streams, repeat(cudata)))
+                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 cd.filter_data(correlations, data, template, ttimes, min_std=cli_args.min_std,
                                max_std=cli_args.max_std, mapf=pool.map)
                 if correlations:

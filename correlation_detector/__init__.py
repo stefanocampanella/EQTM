@@ -105,17 +105,13 @@ def find_trace(stream: Stream, trace_id: str):
             return trace
 
 
-def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=None, cudata=None) -> Trace:
+def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=None) -> Trace:
     header = {"network": continuous.stats.network,
               "station": continuous.stats.station,
               "channel": continuous.stats.channel,
               "starttime": continuous.stats.starttime,
               "sampling_rate": continuous.stats.sampling_rate}
-    if cudata:
-        continuous_data = continuous.data
-    else:
-        continuous_data = cudata[continuous.id]
-    trace = Trace(data=correlate_data(continuous_data, template.data, stream), header=header)
+    trace = Trace(data=correlate_data(continuous.data, template.data, stream), header=header)
 
     duration = continuous.stats.endtime - continuous.stats.starttime
     starttime = trace.stats.starttime + delay
