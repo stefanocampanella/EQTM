@@ -74,7 +74,7 @@ if __name__ == '__main__':
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
                      disable=cli_args.progress)
     events = []
-    max_workers = cli_args.threads if cli_args.threads > 0 else cpu_count(logical=False)
+    max_workers = cli_args.threads if cli_args.threads > 0 else max(cpu_count(logical=False), cli_args.max_channels)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for index, template, ttimes, magnitude in templates:
             try:
