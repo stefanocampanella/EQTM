@@ -25,10 +25,10 @@ with resources.path('correlation_detector', 'event.avsc') as schema_path:
 
 if __name__ == '__main__':
     tic = timer()
+    logging.info(f"Reading from {cli_args.input}")
     with open(cli_args.input, 'rb') as file:
-        logging.info(f"reading from {file.name}")
         events = reader(file, reader_schema=schema)
-        events = filter_detections(events, threshold=cli_args.threshold, min_channels=cli_args.min_channels)
-        save_stats(events, cli_args.output)
+    events = filter_detections(events, threshold=cli_args.threshold, min_channels=cli_args.min_channels)
+    save_stats(events, cli_args.output)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")

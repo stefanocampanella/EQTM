@@ -3,7 +3,6 @@ import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
-from itertools import repeat
 from pathlib import Path
 from time import perf_counter as timer
 
@@ -81,18 +80,18 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                cd.filter_data(correlations, data, template, ttimes, min_std=cli_args.min_std,
-                               max_std=cli_args.max_std, mapf=pool.map)
+                stds = np.fromiter(pool.map(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
+                cd.filter_data(stds, correlations, data, template, ttimes, min_std=cli_args.min_std,
+                               max_std=cli_args.max_std)
                 if correlations:
                     mean_correlation = bn.nanmean([trace.data for trace in correlations], axis=0)
                     dmad = bn.nanmean(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
                     height = cli_args.relative_height * dmad
                     distance = max(trace.stats.npts for trace in template)
                     peaks, properties = find_peaks(mean_correlation, height=height, distance=distance)
-                    detections = cd.get_detections(peaks, correlations, data, template, ttimes,
+                    detections = cd.get_detections(peaks, correlations, data, template, ttimes, pool,
                                                    tolerance=cli_args.tolerance,
-                                                   mag_relative_threshold=cli_args.mag_relative_threshold,
-                                                   mapf=pool.map)
+                                                   mag_relative_threshold=cli_args.mag_relative_threshold)
                     detections = cd.add_template_info(detections, properties['peak_heights'], index, magnitude, dmad)
                     events.extend(detections)
             except BaseException as error:

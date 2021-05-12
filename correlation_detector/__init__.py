@@ -1,10 +1,11 @@
-from datetime import timedelta
 import logging
 import re
 from collections import OrderedDict
+from concurrent.futures import as_completed, Executor
+from datetime import timedelta
 from math import log10, nan
 from pathlib import Path
-from typing import Tuple, Dict, Generator, Callable, Iterator
+from typing import Tuple, Dict, Generator, Iterator
 
 import bottleneck as bn
 import numpy as np
@@ -15,18 +16,6 @@ try:
     import cupy
 except ImportError:
     cupy = None
-
-
-if cupy:
-    # noinspection PyUnresolvedReferences
-    def correlate(data, template, stream):
-        with stream:
-            cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
-        return cross_correlation
-else:
-    def correlate(data, template, stream):
-        return np.correlate(data, template, mode='valid')
 
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
@@ -72,9 +61,8 @@ def read_templates(templates_directory: Path, ttimes_directory: Path,
                 logging.warning(f"{err} occurred while reading template {template_number}")
 
 
-def filter_data(correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
-                min_std: float = 0.25, max_std: float = 1.5, mapf: Callable = map) -> None:
-    stds = np.fromiter(mapf(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
+def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
+                min_std: float = 0.25, max_std: float = 1.5) -> None:
     mean_std = bn.nanmean(stds)
     traces = zip(correlations, data, template, list(travel_times))
     for std, (xcor_trace, cont_trace, temp_trace, trace_id) in zip(stds, traces):
@@ -134,22 +122,37 @@ def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray
     return cross_correlation
 
 
+if cupy:
+    # noinspection PyUnresolvedReferences
+    def correlate(data, template, stream):
+        with stream:
+            cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
+        return cross_correlation
+else:
+    def correlate(data, template, stream):
+        return np.correlate(data, template, mode='valid')
+
+
 def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                   travel_times: Dict[str, float], tolerance: int = 6, mag_relative_threshold: float = 2.0,
-                   mapf: Callable = map) -> Generator[Dict, None, None]:
+                   travel_times: Dict[str, float], pool: Executor, tolerance: int = 6,
+                   mag_relative_threshold: float = 2.0) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
     template_starttime = min(trace.stats.starttime for trace in template)
-    for peak in peaks:
+
+    def process_detection(peak):
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
         delta = trigger_time - template_starttime
-        mag = estimate_magnitude(data, template, delta, mad_factor=mag_relative_threshold, mapf=mapf)
+        mag = estimate_magnitude(data, template, delta, mad_factor=mag_relative_threshold)
         channels = [{'id': trace_id, 'correlation': corr, 'shift': shift}
-                    for trace_id, corr, shift in mapf(lambda trace: fix_correlation(trace, peak, tolerance),
-                                                      correlations)]
-        yield {'timestamp': event_date.timestamp, 'magnitude': mag, 'channels': channels}
+                    for trace_id, corr, shift in (fix_correlation(trace, peak, tolerance) for trace in correlations)]
+        return {'timestamp': event_date.timestamp, 'magnitude': mag, 'channels': channels}
+
+    for future in as_completed(pool.submit(process_detection, peak) for peak in peaks):
+        yield future.result()
 
 
 def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> Tuple[str, float, int]:
@@ -173,9 +176,8 @@ def relative_magnitude(data_trace, template_trace, delta):
         return nan
 
 
-def estimate_magnitude(data: Stream, template: Stream, delta: timedelta,
-                       mad_factor: float, mapf: Callable = map) -> float:
-    magnitudes = np.fromiter(mapf(lambda d, t: relative_magnitude(d, t, delta), data, template), dtype=float)
+def estimate_magnitude(data: Stream, template: Stream, delta: timedelta, mad_factor: float) -> float:
+    magnitudes = np.fromiter(map(lambda d, t: relative_magnitude(d, t, delta), data, template), dtype=float)
     deviations = np.abs(magnitudes - bn.nanmedian(magnitudes))
     mad = bn.nanmedian(deviations)
     threshold = mad_factor * mad + np.finfo(mad).eps
