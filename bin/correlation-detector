@@ -28,7 +28,7 @@ parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("catalog", help="Path to event catalog", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels used for computing cross-correlation", type=int,
-                    default=16)
+                    default=21)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
