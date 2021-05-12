@@ -16,11 +16,11 @@ export ROOT=$(git rev-parse --show-toplevel)
 export PYTHONPATH=$ROOT:$PYTHONPATH
 export PATH=$ROOT/bin:$PATH
 
-cd "$ROOT/data/test" || exit
+cd "$ROOT/data/example" || exit
 for datafile in data/*.mseed
 do
   bname=$(basename $datafile)
-  correlation-detector $datafile ttimes templates templates.zmap ${bname%.mseed} --threads=16 --log=debug &
+  correlation-detector $datafile templates/travel_times templates/data templates/catalog.zmap ${bname%.mseed} --log=info &
 done
 wait
 
