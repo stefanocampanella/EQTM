@@ -47,7 +47,8 @@ parser.add_argument("--json", help="Save output in json format", default=False, 
 parser.add_argument("--stop", help="Stop if an error occurs", default=False, action='store_true')
 cli_args = parser.parse_args()
 
-logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.log.upper()))
+logging.basicConfig(format='%(process)s-%(levelname)s-%(asctime)s: %(message)s',
+                    level=getattr(logging, cli_args.log.upper()))
 
 with resources.path('correlation_detector', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)

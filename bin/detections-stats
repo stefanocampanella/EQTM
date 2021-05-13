@@ -18,7 +18,8 @@ parser.add_argument("--threshold", help="Correlation threshold per channels", ty
 parser.add_argument("--log", help="Log level", default='error')
 cli_args = parser.parse_args()
 
-logging.basicConfig(format='%(asctime)s-%(levelname)s: %(message)s', level=getattr(logging, cli_args.log.upper()))
+logging.basicConfig(format='%(process)s-%(levelname)s-%(asctime)s: %(message)s',
+                    level=getattr(logging, cli_args.log.upper()))
 
 with resources.path('correlation_detector', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)
