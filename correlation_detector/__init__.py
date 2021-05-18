@@ -2,7 +2,6 @@ import logging
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
-from datetime import timedelta
 from math import log10, nan
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
@@ -30,10 +29,10 @@ def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
     return data
 
 
-def read_templates(templates_directory: Path, ttimes_directory: Path,
-                   catalog_path: Path) -> Generator[Tuple[int, Stream, Dict, float], None, None]:
-    logging.info(f"Reading catalog from {catalog_path}")
-    template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
+def read_templates(templates_directory: Path,
+                   ttimes_directory: Path) -> Generator[Tuple[int, Stream, Dict], None, None]:
+    # logging.info(f"Reading catalog from {catalog_path}")
+    # template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
     logging.info(f"Reading travel times from {ttimes_directory}")
     logging.info(f"Reading templates from {templates_directory}")
     file_regex = re.compile(r'(?P<template_number>\d+).ttimes')
@@ -56,7 +55,7 @@ def read_templates(templates_directory: Path, ttimes_directory: Path,
                 with template_path.open('rb') as template_file:
                     template_stream = read(template_file, dtype=np.float32)
                 template_stream.merge(fill_value=0)
-                yield template_number, template_stream, travel_times, template_magnitudes.iloc[template_number - 1]
+                yield template_number, template_stream, travel_times  # , template_magnitudes.iloc[template_number - 1]
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
 
@@ -135,8 +134,7 @@ else:
 
 
 def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                   travel_times: Dict[str, float], pool: Executor, tolerance: int = 6,
-                   mag_relative_threshold: float = 2.0) -> Generator[Dict, None, None]:
+                   travel_times: Dict[str, float], pool: Executor, tolerance: int = 6) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
@@ -146,21 +144,25 @@ def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, tem
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
         delta = trigger_time - template_starttime
-        mag = estimate_magnitude(data, template, delta, mad_factor=mag_relative_threshold)
-        channels = [{'id': trace_id, 'correlation': corr, 'shift': shift}
-                    for trace_id, corr, shift in (fix_correlation(trace, peak, tolerance) for trace in correlations)]
-        return {'timestamp': event_date.timestamp, 'magnitude': mag, 'channels': channels}
+        channels = []
+        for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
+            magnitude = relative_magnitude(data_trace, template_trace, delta)
+            height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
+            channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
+                             'magnitude': magnitude})
+        return {'timestamp': event_date.timestamp, 'channels': channels}
 
     for future in as_completed(pool.submit(process_detection, peak) for peak in peaks):
         yield future.result()
 
 
-def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> Tuple[str, float, int]:
+def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> Tuple[float, float, int]:
     lower = max(trigger_sample - tolerance, 0)
     upper = min(trigger_sample + tolerance + 1, len(trace.data))
     sample_shift = bn.nanargmax(trace.data[lower:upper]) - tolerance
+    correlation = trace.data[trigger_sample]
     max_correlation = trace.data[trigger_sample + sample_shift]
-    return trace.id, max_correlation, sample_shift
+    return correlation, max_correlation, sample_shift
 
 
 def relative_magnitude(data_trace, template_trace, delta):
@@ -176,42 +178,54 @@ def relative_magnitude(data_trace, template_trace, delta):
         return nan
 
 
-def estimate_magnitude(data: Stream, template: Stream, delta: timedelta, mad_factor: float) -> float:
-    magnitudes = np.fromiter(map(lambda d, t: relative_magnitude(d, t, delta), data, template), dtype=float)
+def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: float) -> float:
+    magnitudes = template_magnitude + np.fromiter(relative_magnitudes, dtype=float)
     deviations = np.abs(magnitudes - bn.nanmedian(magnitudes))
     mad = bn.nanmedian(deviations)
     threshold = mad_factor * mad + np.finfo(mad).eps
     return bn.nanmean(magnitudes[deviations < threshold])
 
 
-def add_template_info(detections, heights, template_number, template_magnitude, dmad):
-    for detection, height in zip(detections, heights):
-        detection.update({'template': template_number,
-                          'magnitude': template_magnitude + detection['magnitude'],
-                          'height': height,
-                          'dmad': dmad})
-        yield detection
-
-
-def filter_detections(detections, threshold: float = 0.35, min_channels: int = 6):
+def preprocess(detections, catalog, threshold: float = 0.35, min_channels: int = 6, mag_relative_threshold=2.0):
     for detection in detections:
         channels = detection['channels']
+        template_magnitude = catalog.iloc[detection['template'] - 1]
+        magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
+                                       mag_relative_threshold)
         num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
         correlation = sum(channel['correlation'] for channel in channels) / len(channels)
         if num_channels >= min_channels:
-            detection.update({'num_channels': num_channels, 'correlation': correlation})
+            timestamp = UTCDateTime(detection['timestamp'])
+            detection.update({'datetime': timestamp, 'num_channels': num_channels, 'correlation': correlation,
+                              'magnitude': magnitude, 'template_magnitude': template_magnitude})
+            for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
+                detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
+            detection['crt_pre'] = detection['height'] / detection['dmad']
+            detection['crt_post'] = detection['correlation'] / detection['dmad']
             yield detection
 
 
-def save_stats(events: Iterator[Dict], output: Path) -> None:
-    df = pd.DataFrame.from_records(events, columns=['template', 'timestamp', 'magnitude', 'height',
-                                                    'dmad', 'correlation', 'num_channels'])
-    df.sort_values(by=['template', 'timestamp'], inplace=True)
-    df['timestamp'] = df['timestamp'].apply(lambda x: UTCDateTime(x).datetime)
-    df['crt_pre'] = df['height'] / df['dmad']
-    df['crt_post'] = df['correlation'] / df['dmad']
-    logging.info(f"Writing outputs to {output}")
-    df.to_csv(output, index=False, header=False, na_rep='NA', sep=' ',
-              date_format='%Y-%m-%dT%H:%M:%S.%fZ',
-              float_format='%.3f', columns=['template', 'timestamp', 'magnitude', 'correlation', 'crt_post',
-                                            'height', 'crt_pre', 'num_channels'])
+def read_zmap(catalog_path):
+    logging.info(f"Reading catalog from {catalog_path}")
+    template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
+    return template_magnitudes
+
+
+def format_stats(event):
+    line = ""
+    for trace in event['channels']:
+        network, station, _, channel = trace['id'].split('.')
+        height, correlation, shift = trace['height'], trace['correlation'], trace['shift']
+        line += f"{network}.{station} {channel} {height:.12f} {correlation:.12f} {shift}\n"
+    line += f"{event['datetime'].strftime('%y%m%d')} {event['template']} ? {event['datetime'].isoformat()} " \
+            f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} {event['num_channels']} {event['dmad']:.3f} " \
+            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
+            f"{event['30%']} {event['50%']} {event['70%']} {event['90%']}\n"
+
+    return line
+
+
+def format_cat(event):
+    return f"{event['template']} {event['datetime'].isoformat()} {event['magnitude']:.2f} " \
+           f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
+           f"{event['num_channels']}\n"

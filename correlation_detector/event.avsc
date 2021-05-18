@@ -6,7 +6,6 @@
     {"name": "timestamp", "type": "double"},
     {"name": "height", "type": "float"},
     {"name": "dmad", "type": "float"},
-    {"name": "magnitude", "type": "float"},
     {"name": "channels",
       "type": {
         "type": "array",
@@ -15,8 +14,10 @@
             "type": "record",
             "fields": [
               {"name": "id", "type": "string"},
+              {"name": "height", "type":  "float"},
               {"name": "correlation", "type": "float"},
-              {"name": "shift", "type": "int"}
+              {"name": "shift", "type": "int"},
+              {"name": "magnitude", "type": "float"}
             ]
         }
       }

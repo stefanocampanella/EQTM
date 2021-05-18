@@ -2,19 +2,23 @@
 import argparse
 import logging
 from importlib import resources
+from pathlib import Path
 from time import perf_counter as timer
 
 from fastavro.schema import load_schema
 from fastavro import reader
 
-from correlation_detector import save_stats, filter_detections
+from correlation_detector import preprocess, read_zmap, format_stats, format_cat
 
 parser = argparse.ArgumentParser(prog="stats")
+parser.add_argument("catalog", help="Path to event catalog", type=Path)
 parser.add_argument("input", help="Input file path")
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--min_channels", help="Minimum number of channels with correlation above threshold",
                     type=int, default=6)
 parser.add_argument("--threshold", help="Correlation threshold per channels", type=float, default=0.35)
+parser.add_argument("--mag_relative_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
+                    default=2.0)
 parser.add_argument("--log", help="Log level", default='error')
 cli_args = parser.parse_args()
 
@@ -26,10 +30,20 @@ with resources.path('correlation_detector', 'event.avsc') as schema_path:
 
 if __name__ == '__main__':
     tic = timer()
+
+    template_magnitudes = read_zmap(cli_args.catalog)
+
     logging.info(f"Reading from {cli_args.input}")
-    with open(cli_args.input, 'rb') as file:
-        events = reader(file, reader_schema=schema)
-        events = filter_detections(events, threshold=cli_args.threshold, min_channels=cli_args.min_channels)
-        save_stats(events, cli_args.output)
+    with open(cli_args.input, 'rb') as avro:
+        detections = reader(avro, reader_schema=schema)
+        detections = sorted(detections, key=lambda detection: (detection['template'], detection['timestamp']))
+        detections = preprocess(detections, template_magnitudes, threshold=cli_args.threshold,
+                                min_channels=cli_args.min_channels,
+                                mag_relative_threshold=cli_args.mag_relative_threshold)
+        with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
+            logging.info(f"Writing to {stats.name} and {cat.name}")
+            for event in detections:
+                stats.write(format_stats(event))
+                cat.write(format_cat(event))
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
