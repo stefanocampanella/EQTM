@@ -225,6 +225,19 @@ def format_stats(event):
     return line
 
 
+def format_statsmag(event):
+    line = ""
+    for trace in event['channels']:
+        network, station, _, channel = trace['id'].split('.')
+        line += f"{station}.{channel} {event['template_magnitude'] + trace['magnitude']:.12f}\n"
+    line += f"{event['datetime'].strftime('%y%m%d')} {event['template']} ? {event['datetime'].isoformat()} " \
+            f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} {event['num_channels']} {event['dmad']:.3f} " \
+            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
+            f"{event['30%']} {event['50%']} {event['70%']} {event['90%']}\n"
+
+    return line
+
+
 def format_cat(event):
     return f"{event['template']} {event['datetime'].isoformat()} {event['magnitude']:.2f} " \
            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \

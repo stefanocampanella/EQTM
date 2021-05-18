@@ -39,7 +39,7 @@ parser.add_argument("--max_std", help="Scale factor of correlation std max thres
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--log", help="Log level", default='warning')
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
-parser.add_argument("--progress", help="Show progress bar", default=None, action='store_true')
+parser.add_argument("--progress", help="Show progress bar", default=False, action='store_true')
 parser.add_argument("--json", help="Save output in json lines format", default=False, action='store_true')
 parser.add_argument("--stop", help="Stop if an error occurs", default=False, action='store_true')
 cli_args = parser.parse_args()
@@ -70,7 +70,7 @@ if __name__ == '__main__':
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
     templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
-                     disable=cli_args.progress)
+                     disable=not cli_args.progress)
     events = []
     max_workers = cli_args.threads if cli_args.threads > 0 else max(cpu_count(logical=False), cli_args.max_channels)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:

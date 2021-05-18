@@ -7,8 +7,9 @@ from time import perf_counter as timer
 
 from fastavro.schema import load_schema
 from fastavro import reader
+from tqdm import tqdm
 
-from correlation_detector import preprocess, read_zmap, format_stats, format_cat
+from correlation_detector import preprocess, read_zmap, format_stats, format_cat, format_statsmag
 
 parser = argparse.ArgumentParser(prog="stats")
 parser.add_argument("catalog", help="Path to event catalog", type=Path)
@@ -20,6 +21,8 @@ parser.add_argument("--threshold", help="Correlation threshold per channels", ty
 parser.add_argument("--mag_relative_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
 parser.add_argument("--log", help="Log level", default='error')
+parser.add_argument("--sort", help="Sort output by template and date", default=False, action='store_true')
+
 cli_args = parser.parse_args()
 
 logging.basicConfig(format='%(process)s-%(levelname)s-%(asctime)s: %(message)s',
@@ -36,14 +39,17 @@ if __name__ == '__main__':
     logging.info(f"Reading from {cli_args.input}")
     with open(cli_args.input, 'rb') as avro:
         detections = reader(avro, reader_schema=schema)
-        detections = sorted(detections, key=lambda detection: (detection['template'], detection['timestamp']))
+        if cli_args.sort:
+            detections = sorted(detections, key=lambda detection: (detection['template'], detection['timestamp']))
         detections = preprocess(detections, template_magnitudes, threshold=cli_args.threshold,
                                 min_channels=cli_args.min_channels,
                                 mag_relative_threshold=cli_args.mag_relative_threshold)
-        with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
-            logging.info(f"Writing to {stats.name} and {cat.name}")
+        with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat, \
+                open(cli_args.output + '.stats.mag', 'w') as mag:
+            logging.info(f"Writing to {stats.name}, {mag.name}, and {cat.name}")
             for event in detections:
                 stats.write(format_stats(event))
+                mag.write(format_statsmag(event))
                 cat.write(format_cat(event))
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
