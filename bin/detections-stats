@@ -5,9 +5,8 @@ from importlib import resources
 from pathlib import Path
 from time import perf_counter as timer
 
-from fastavro.schema import load_schema
 from fastavro import reader
-from tqdm import tqdm
+from fastavro.schema import load_schema
 
 from correlation_detector import preprocess, read_zmap, format_stats, format_cat, format_statsmag
 
