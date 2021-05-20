@@ -28,15 +28,13 @@ parser.add_argument("travel_times", help="Path to travel times directory", type=
 parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels used for computing cross-correlation", type=int,
-                    default=18)
+                    default=15)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
-                    default=8.0)
+                    default=6.0)
 parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance", type=float,
                     default=2.0)
-parser.add_argument("--min_std", help="Scale factor of correlation std min threshold", type=float, default=0.25)
-parser.add_argument("--max_std", help="Scale factor of correlation std max threshold", type=float, default=1.5)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--log", help="Log level", default='warning')
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
@@ -81,12 +79,6 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                stds = OrderedDict([(trace_id, std)
-                                    for trace_id, std in pool.map(lambda trace: (trace.id,
-                                                                                 bn.nanstd(np.abs(trace.data))),
-                                                                  correlations)])
-                cd.filter_data(stds, correlations, data, template, ttimes, min_std=cli_args.min_std,
-                               max_std=cli_args.max_std)
                 if correlations:
                     mean_correlation = bn.nanmean([trace.data for trace in correlations], axis=0)
                     dmad = bn.nanmean(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
@@ -95,10 +87,13 @@ if __name__ == '__main__':
                     peaks, properties = find_peaks(mean_correlation, height=height, distance=distance)
                     detections = cd.process_detections(zip(peaks, properties['peak_heights']), correlations, data,
                                                        template, ttimes, pool, tolerance=cli_args.tolerance)
+                    stds = {trace_id: std
+                            for trace_id, std in pool.map(lambda trace: (trace.id, bn.nanstd(np.abs(trace.data))),
+                                                          correlations)}
                     for detection in detections:
                         detection.update({'template': index, 'dmad': dmad})
-                        for std, channel in zip(stds.values(), detection['channels']):
-                            channel['std'] = std
+                        for channel in detection['channels']:
+                            channel['std'] = stds[channel['id']]
                         events.append(detection)
             except BaseException as error:
                 if cli_args.stop:

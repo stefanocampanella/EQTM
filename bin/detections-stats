@@ -19,6 +19,8 @@ parser.add_argument("--min_channels", help="Minimum number of channels with corr
 parser.add_argument("--threshold", help="Correlation threshold per channels", type=float, default=0.35)
 parser.add_argument("--mag_relative_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
+parser.add_argument("--min_std", help="Scale factor of correlation std min threshold", type=float, default=0.25)
+parser.add_argument("--max_std", help="Scale factor of correlation std max threshold", type=float, default=1.5)
 parser.add_argument("--log", help="Log level", default='error')
 parser.add_argument("--sort", help="Sort output by template and date", default=False, action='store_true')
 
@@ -42,13 +44,12 @@ if __name__ == '__main__':
             detections = sorted(detections, key=lambda detection: (detection['template'], detection['timestamp']))
         detections = preprocess(detections, template_magnitudes, threshold=cli_args.threshold,
                                 min_channels=cli_args.min_channels,
-                                mag_relative_threshold=cli_args.mag_relative_threshold)
-        with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat, \
-                open(cli_args.output + '.stats.mag', 'w') as mag:
-            logging.info(f"Writing to {stats.name}, {mag.name}, and {cat.name}")
+                                mag_relative_threshold=cli_args.mag_relative_threshold,
+                                min_std=cli_args.min_std, max_std=cli_args.max_std)
+        with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
+            logging.info(f"Writing to {stats.name} and {cat.name}")
             for event in detections:
                 stats.write(format_stats(event))
-                mag.write(format_statsmag(event))
                 cat.write(format_cat(event))
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")

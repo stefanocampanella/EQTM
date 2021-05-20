@@ -185,22 +185,24 @@ def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: floa
     return bn.nanmean(magnitudes[deviations < threshold])
 
 
-def preprocess(detections, catalog, threshold: float = 0.35, min_channels: int = 6, mag_relative_threshold=2.0):
+def preprocess(detections, catalog, threshold: float = 0.35, min_channels: int = 6, mag_relative_threshold=2.0,
+               min_std: float = 0.25, max_std: float = 1.5):
     for detection in detections:
-        channels = detection['channels']
-        template_magnitude = catalog.iloc[detection['template'] - 1]
-        magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
-                                       mag_relative_threshold)
+        mean_std = bn.nanmean([channel['std'] for channel in detection['channels']])
+        channels = [channel for channel in detection['channels'] if min_std < channel['std'] / mean_std < max_std]
         num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
-        correlation = sum(channel['correlation'] for channel in channels) / len(channels)
         if num_channels >= min_channels:
             timestamp = UTCDateTime(detection['timestamp'])
+            correlation = sum(channel['correlation'] for channel in channels) / len(channels)
+            template_magnitude = catalog.iloc[detection['template'] - 1]
+            magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
+                                           mag_relative_threshold)
             detection.update({'datetime': timestamp, 'num_channels': num_channels, 'correlation': correlation,
-                              'magnitude': magnitude, 'template_magnitude': template_magnitude})
+                              'magnitude': magnitude, 'template_magnitude': template_magnitude, 'channels': channels,
+                              'crt_pre': detection['height'] / detection['dmad'],
+                              'crt_post': correlation / detection['dmad']})
             for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
                 detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
-            detection['crt_pre'] = detection['height'] / detection['dmad']
-            detection['crt_post'] = detection['correlation'] / detection['dmad']
             yield detection
 
 
@@ -215,7 +217,8 @@ def format_stats(event):
     for trace in event['channels']:
         network, station, _, channel = trace['id'].split('.')
         height, correlation, shift = trace['height'], trace['correlation'], trace['shift']
-        line += f"{network}.{station} {channel} {height:.12f} {correlation:.12f} {shift}\n"
+        line += f"{network}.{station} {channel} {height:.12f} {correlation:.12f} {shift} " \
+                f"{event['template_magnitude'] + trace['magnitude']:.12f} {trace['std']:.12f}\n"
     line += f"{event['datetime'].strftime('%y%m%d')} {event['template']} ? {event['datetime'].isoformat()} " \
             f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} {event['num_channels']} {event['dmad']:.3f} " \
             f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
