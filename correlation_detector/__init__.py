@@ -31,8 +31,6 @@ def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
 
 def read_templates(templates_directory: Path,
                    ttimes_directory: Path) -> Generator[Tuple[int, Stream, Dict], None, None]:
-    # logging.info(f"Reading catalog from {catalog_path}")
-    # template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
     logging.info(f"Reading travel times from {ttimes_directory}")
     logging.info(f"Reading templates from {templates_directory}")
     file_regex = re.compile(r'(?P<template_number>\d+).ttimes')
@@ -55,22 +53,23 @@ def read_templates(templates_directory: Path,
                 with template_path.open('rb') as template_file:
                     template_stream = read(template_file, dtype=np.float32)
                 template_stream.merge(fill_value=0)
-                yield template_number, template_stream, travel_times  # , template_magnitudes.iloc[template_number - 1]
+                yield template_number, template_stream, travel_times
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
 
 
-def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
-                min_std: float = 0.25, max_std: float = 1.5) -> None:
-    mean_std = bn.nanmean(stds)
-    traces = zip(correlations, data, template, list(travel_times))
-    for std, (xcor_trace, cont_trace, temp_trace, trace_id) in zip(stds, traces):
-        if not min_std * mean_std < std < max_std * mean_std:
-            logging.debug(f"Ignored trace {xcor_trace} with std {std} (mean: {mean_std})")
+def filter_data(stds: Dict[str, float], correlations: Stream, data: Stream, template: Stream,
+                travel_times: Dict[str, float], min_std: float = 0.25, max_std: float = 1.5) -> None:
+    mean_std = bn.nanmean(list(stds.values()))
+    for std_id, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(list(stds.keys()), correlations, data, template,
+                                                                     list(travel_times.keys())):
+        if not min_std * mean_std < stds[std_id] < max_std * mean_std:
+            logging.debug(f"Ignored trace {xcor_trace} with std {stds[std_id]} (mean: {mean_std})")
             correlations.remove(xcor_trace)
             data.remove(cont_trace)
             template.remove(temp_trace)
-            del travel_times[trace_id]
+            del travel_times[ttimes_id]
+            del stds[std_id]
 
 
 def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],
@@ -133,14 +132,14 @@ else:
         return np.correlate(data, template, mode='valid')
 
 
-def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                   travel_times: Dict[str, float], pool: Executor, tolerance: int = 6) -> Generator[Dict, None, None]:
+def process_detections(detections: Iterator[Tuple[int, float]], correlations: Stream, data: Stream, template: Stream,
+                       travel_times: Dict[str, float], pool: Executor, tolerance: int = 6) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
     template_starttime = min(trace.stats.starttime for trace in template)
 
-    def process_detection(peak):
+    def process_detection(peak, peak_height):
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
         delta = trigger_time - template_starttime
@@ -150,19 +149,19 @@ def get_detections(peaks: Iterator[int], correlations: Stream, data: Stream, tem
             height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
             channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})
-        return {'timestamp': event_date.timestamp, 'channels': channels}
+        return {'timestamp': event_date.timestamp, 'height': peak_height, 'channels': channels}
 
-    for future in as_completed(pool.submit(process_detection, peak) for peak in peaks):
+    for future in as_completed(pool.submit(process_detection, peak, peak_height) for peak, peak_height in detections):
         yield future.result()
 
 
-def fix_correlation(trace: Trace, trigger_sample: int, tolerance: int) -> Tuple[float, float, int]:
-    lower = max(trigger_sample - tolerance, 0)
-    upper = min(trigger_sample + tolerance + 1, len(trace.data))
-    sample_shift = bn.nanargmax(trace.data[lower:upper]) - tolerance
-    correlation = trace.data[trigger_sample]
-    max_correlation = trace.data[trigger_sample + sample_shift]
-    return correlation, max_correlation, sample_shift
+def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
+    lower = max(peak - tolerance, 0)
+    upper = min(peak + tolerance + 1, len(trace.data))
+    shift = bn.nanargmax(trace.data[lower:upper]) - tolerance
+    height = trace.data[peak]
+    correlation = trace.data[peak + shift]
+    return height, correlation, shift
 
 
 def relative_magnitude(data_trace, template_trace, delta):
