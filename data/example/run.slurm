@@ -12,15 +12,18 @@
 
 module load git
 
-export ROOT=$(git rev-parse --show-toplevel)
+GITROOT=$(git rev-parse --show-toplevel)
+
+export ROOT=$GITROOT
 export PYTHONPATH=$ROOT:$PYTHONPATH
 export PATH=$ROOT/bin:$PATH
 
 cd "$ROOT/data/example" || exit
 for datafile in data/*.mseed
 do
-  bname=$(basename $datafile)
-  correlation-detector $datafile templates/travel_times templates/data templates/catalog.zmap ${bname%.mseed} --log=info &
+  bname=${$(basename "$datafile")%.mseed}
+  correlation-detector "$datafile" templates/travel_times templates/data "$bname" --log=info && \
+  detections-stats templates/catalog.zmap "${bname}.avro" "$bname" --log=info &
 done
 wait
 
