@@ -82,7 +82,8 @@ if __name__ == '__main__':
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 stds = OrderedDict([(trace_id, std)
-                                    for trace_id, std in pool.map(lambda trace: (trace.id, bn.nanstd(np.abs(trace.data))),
+                                    for trace_id, std in pool.map(lambda trace: (trace.id,
+                                                                                 bn.nanstd(np.abs(trace.data))),
                                                                   correlations)])
                 cd.filter_data(stds, correlations, data, template, ttimes, min_std=cli_args.min_std,
                                max_std=cli_args.max_std)
