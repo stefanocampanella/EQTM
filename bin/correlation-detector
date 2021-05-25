@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 import argparse
 import logging
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
 from pathlib import Path
