@@ -101,8 +101,12 @@ if __name__ == '__main__':
                 else:
                     logging.error(f"{error} occurred while processing template {index}")
             finally:
-                del correlations
-                del data
+                if 'data' in locals():
+                    del data
+                if 'correlations' in locals():
+                    del correlations
+                if 'mean_correlation' in locals():
+                    del mean_correlation
                 gc.collect()
     with open(output, mode) as file:
         logging.info(f"Writing output to {file.name}")
