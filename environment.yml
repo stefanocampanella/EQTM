@@ -15,5 +15,6 @@ dependencies:
   - psutil
   - lxml
   - fastavro
+  - python-snappy
   - pip:
     - obspy
