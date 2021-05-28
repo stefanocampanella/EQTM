@@ -1,6 +1,5 @@
 #! /usr/bin/env python
 import argparse
-import gc
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
@@ -100,14 +99,6 @@ if __name__ == '__main__':
                     raise error
                 else:
                     logging.error(f"{error} occurred while processing template {index}")
-            finally:
-                if 'data' in locals():
-                    del data
-                if 'correlations' in locals():
-                    del correlations
-                if 'mean_correlation' in locals():
-                    del mean_correlation
-                gc.collect()
     with open(output, mode) as file:
         logging.info(f"Writing output to {file.name}")
         writer(file, schema, events)
