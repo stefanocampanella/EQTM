@@ -27,7 +27,7 @@ parser.add_argument("travel_times", help="Path to travel times directory", type=
 parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels used for computing cross-correlation", type=int,
-                    default=15)
+                    default=18)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
@@ -36,7 +36,7 @@ parser.add_argument("--relative_distance", help="Scale factor of mean correlatio
                     default=2.0)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--buffer_size", help="Maximum lag in samples", type=int, default=4096)
-parser.add_argument("--log", help="Log level", default='warning')
+parser.add_argument("--log", help="Log level", default='info')
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
 parser.add_argument("--progress", help="Show progress bar", default=False, action='store_true')
 parser.add_argument("--json", help="Save output in json lines format", default=False, action='store_true')
