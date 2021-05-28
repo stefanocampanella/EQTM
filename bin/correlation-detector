@@ -35,6 +35,7 @@ parser.add_argument("--relative_height", help="Scale factor of mean correlation 
 parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance", type=float,
                     default=2.0)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
+parser.add_argument("--buffer_size", help="Maximum lag in samples", type=int, default=4096)
 parser.add_argument("--log", help="Log level", default='warning')
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
 parser.add_argument("--progress", help="Show progress bar", default=False, action='store_true')
@@ -51,13 +52,17 @@ with resources.path('correlation_detector', 'event.avsc') as schema_path:
 if cli_args.json:
     from fastavro import json_writer as writer
 
-    output = cli_args.output + '.jsonl'
-    mode = 'w'
+    output = Path(cli_args.output + '.jsonl')
+    mode = 'a+'
 else:
     from fastavro import writer
 
-    output = cli_args.output + '.avro'
-    mode = 'wb'
+    output = Path(cli_args.output + '.avro')
+    mode = 'a+b'
+
+if output.exists():
+    logging.warning(f"{output} already exists, it will be overwritten.")
+    output.unlink()
 
 if cupy:
     # noinspection PyUnresolvedReferences
@@ -71,7 +76,7 @@ if __name__ == '__main__':
     templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
                      disable=not cli_args.progress)
-    events = []
+    events_buffer = []
     max_workers = cli_args.threads if cli_args.threads > 0 else max(cpu_count(logical=False), cli_args.max_channels)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for index, template, ttimes in templates:
@@ -93,14 +98,21 @@ if __name__ == '__main__':
                         detection.update({'template': index, 'dmad': dmad})
                         for channel in detection['channels']:
                             channel['std'] = stds[channel['id']]
-                        events.append(detection)
+                        events_buffer.append(detection)
             except BaseException as error:
                 if cli_args.stop:
                     raise error
                 else:
                     logging.error(f"{error} occurred while processing template {index}")
-    with open(output, mode) as file:
-        logging.info(f"Writing output to {file.name}")
-        writer(file, schema, events)
+            finally:
+                if len(events_buffer) > cli_args.buffer_size:
+                    with open(output, mode) as file:
+                        logging.info(f"Flushing {len(events_buffer)} events to {file.name}")
+                        writer(file, schema, events_buffer)
+                    events_buffer.clear()
+    if events_buffer:
+        with open(output, mode) as file:
+            logging.info(f"Writing remaining {len(events_buffer)} events to {file.name}")
+            writer(file, schema, events_buffer)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
