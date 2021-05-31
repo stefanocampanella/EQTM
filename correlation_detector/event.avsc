@@ -17,8 +17,7 @@
               {"name": "height", "type":  "float"},
               {"name": "correlation", "type": "float"},
               {"name": "shift", "type": "int"},
-              {"name": "magnitude", "type": "float"},
-              {"name": "std", "type": "float"}
+              {"name": "magnitude", "type": "float"}
             ]
         }
       }

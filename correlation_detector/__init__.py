@@ -58,18 +58,23 @@ def read_templates(templates_directory: Path,
                 logging.warning(f"{err} occurred while reading template {template_number}")
 
 
-def filter_data(stds: Dict[str, float], correlations: Stream, data: Stream, template: Stream,
-                travel_times: Dict[str, float], min_std: float = 0.25, max_std: float = 1.5) -> None:
-    mean_std = bn.nanmean(list(stds.values()))
-    for std_id, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(list(stds.keys()), correlations, data, template,
-                                                                     list(travel_times.keys())):
-        if not min_std * mean_std < stds[std_id] < max_std * mean_std:
-            logging.debug(f"Ignored trace {xcor_trace} with std {stds[std_id]} (mean: {mean_std})")
+def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream,
+                travel_times: Dict[str, float],
+                threshold: float = 10.0):  # min_std: float = 0.25, max_std: float = 1.5) -> None:
+    # mean_std = bn.nanmean(stds)
+    # for std, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(stds, correlations, data, template,
+    #                                                                  list(travel_times.keys())):
+    # if not min_std * mean_std < std / mean_std < max_std * mean_std:
+    deviations = np.abs(stds - bn.nanmedian(stds))
+    deviations /= bn.nanmedian(deviations)
+    for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(stds, deviations, correlations, data, template,
+                                                                       list(travel_times.keys())):
+        if dev > threshold:
+            logging.debug(f"Ignored trace {xcor_trace} with std {std} (deviation: {dev})")
             correlations.remove(xcor_trace)
             data.remove(cont_trace)
             template.remove(temp_trace)
             del travel_times[ttimes_id]
-            del stds[std_id]
 
 
 def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],
@@ -185,11 +190,9 @@ def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: floa
     return bn.nanmean(magnitudes[deviations < threshold])
 
 
-def preprocess(detections, catalog, threshold: float = 0.35, min_channels: int = 6, mag_relative_threshold=2.0,
-               min_std: float = 0.25, max_std: float = 1.5):
+def preprocess(detections, catalog, threshold: float = 0.35, min_channels: int = 6, mag_relative_threshold=2.0):
     for detection in detections:
-        mean_std = bn.nanmean([channel['std'] for channel in detection['channels']])
-        channels = [channel for channel in detection['channels'] if min_std < channel['std'] / mean_std < max_std]
+        channels = detection['channels']
         num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
         if num_channels >= min_channels:
             timestamp = UTCDateTime(detection['timestamp'])
@@ -218,20 +221,7 @@ def format_stats(event):
         network, station, _, channel = trace['id'].split('.')
         height, correlation, shift = trace['height'], trace['correlation'], trace['shift']
         line += f"{network}.{station} {channel} {height:.12f} {correlation:.12f} {shift} " \
-                f"{event['template_magnitude'] + trace['magnitude']:.12f} {trace['std']:.12f}\n"
-    line += f"{event['datetime'].strftime('%y%m%d')} {event['template']} ? {event['datetime'].isoformat()} " \
-            f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} {event['num_channels']} {event['dmad']:.3f} " \
-            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
-            f"{event['30%']} {event['50%']} {event['70%']} {event['90%']}\n"
-
-    return line
-
-
-def format_statsmag(event):
-    line = ""
-    for trace in event['channels']:
-        network, station, _, channel = trace['id'].split('.')
-        line += f"{station}.{channel} {event['template_magnitude'] + trace['magnitude']:.12f}\n"
+                f"{event['template_magnitude'] + trace['magnitude']:.12f}\n"
     line += f"{event['datetime'].strftime('%y%m%d')} {event['template']} ? {event['datetime'].isoformat()} " \
             f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} {event['num_channels']} {event['dmad']:.3f} " \
             f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \

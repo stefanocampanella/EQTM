@@ -29,6 +29,7 @@ parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels used for computing cross-correlation", type=int,
                     default=18)
+parser.add_argument("--std_threshold", help="Scale factor of correlation std MAD threshold", type=float, default=10)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
@@ -75,21 +76,18 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
+                stds = np.fromiter(pool.map(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
+                cd.filter_data(stds, correlations, data, template, ttimes, threshold=cli_args.std_threshold)
                 if correlations:
                     mean_correlation = bn.nanmean([trace.data for trace in correlations], axis=0)
-                    dmad = bn.nanmean(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
+                    dmad = bn.nanmedian(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
                     height = cli_args.relative_height * dmad
                     distance = max(trace.stats.npts for trace in template)
                     peaks, properties = find_peaks(mean_correlation, height=height, distance=distance)
                     detections = cd.process_detections(zip(peaks, properties['peak_heights']), correlations, data,
                                                        template, ttimes, pool, tolerance=cli_args.tolerance)
-                    stds = {trace_id: std
-                            for trace_id, std in pool.map(lambda trace: (trace.id, bn.nanstd(np.abs(trace.data))),
-                                                          correlations)}
                     for detection in detections:
                         detection.update({'template': index, 'dmad': dmad})
-                        for channel in detection['channels']:
-                            channel['std'] = stds[channel['id']]
                         events_buffer.append(detection)
             except BaseException as error:
                 if cli_args.stop:
