@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
@@ -10,6 +11,7 @@ import bottleneck as bn
 import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace, UTCDateTime
+from psutil import Process
 
 try:
     import cupy
@@ -234,3 +236,7 @@ def format_cat(event):
     return f"{event['template']} {event['datetime'].isoformat()} {event['magnitude']:.2f} " \
            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
            f"{event['num_channels']}\n"
+
+
+def memory_usage():
+    return Process(os.getpid()).memory_info().rss / (1 << 30)

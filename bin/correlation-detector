@@ -33,11 +33,11 @@ parser.add_argument("--std_threshold", help="Scale factor of correlation std MAD
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
-                    default=8.0)
+                    default=12.0)
 parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance", type=float,
                     default=2.0)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
-parser.add_argument("--buffer_size", help="Size of event buffer in MB", type=float, default=200.0)
+parser.add_argument("--memory_limit", help="Memory limit in GB (affects only events buffer)", type=float, default=5)
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
                     default='snappy')
 parser.add_argument("--log", help="Log level", default='info')
@@ -69,7 +69,6 @@ if __name__ == '__main__':
         logging.warning(f"{output} already exists, it will be overwritten.")
         output.unlink()
     events_buffer = []
-    event_size = 24 + cli_args.max_channels * 36
     max_workers = cli_args.threads if cli_args.threads > 0 else max(cpu_count(logical=False), cli_args.max_channels)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for index, template, ttimes in templates:
@@ -95,7 +94,7 @@ if __name__ == '__main__':
                 else:
                     logging.error(f"{error} occurred while processing template {index}")
             finally:
-                if len(events_buffer) * event_size > cli_args.buffer_size * 1048576:
+                if cd.memory_usage() > cli_args.memory_limit:
                     with open(output, 'a+b') as file:
                         logging.info(f"Flushing {len(events_buffer)} events to {file.name}")
                         writer(file, schema, events_buffer, codec='snappy')
