@@ -94,7 +94,7 @@ if __name__ == '__main__':
                 else:
                     logging.error(f"{error} occurred while processing template {index}")
             finally:
-                if cd.memory_usage() > cli_args.memory_limit:
+                if events_buffer and cd.memory_usage() > cli_args.memory_limit:
                     with open(output, 'a+b') as file:
                         logging.info(f"Flushing {len(events_buffer)} events to {file.name}")
                         writer(file, schema, events_buffer, codec='snappy')
