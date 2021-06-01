@@ -64,11 +64,13 @@ def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: 
                 mad_factor: float = 10.0) -> None:
     deviations = np.abs(stds - bn.nanmedian(stds))
     mad = bn.nanmedian(deviations)
+    std_mean = bn.nanmean(stds)
+    std_std = bn.nanstd(stds)
     threshold = mad_factor * mad + np.finfo(mad).eps
-    for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(stds, deviations, correlations, data, template,
-                                                                       list(travel_times.keys())):
+    tuples = zip(stds, deviations, correlations, data, template, list(travel_times.keys()))
+    for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in tuples:
         if dev > threshold:
-            logging.debug(f"Ignored trace {xcor_trace} with std {std} (deviation: {dev})")
+            logging.debug(f"Skipping trace {xcor_trace} (std: {std}, average: {std_mean} ± {3 * std_std})")
             correlations.remove(xcor_trace)
             data.remove(cont_trace)
             template.remove(temp_trace)
