@@ -37,7 +37,7 @@ parser.add_argument("--relative_height", help="Scale factor of mean correlation 
 parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance", type=float,
                     default=2.0)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
-parser.add_argument("--memory_limit", help="Memory limit in GB (affects only events buffer)", type=float, default=5)
+parser.add_argument("--memory_limit", help="Memory limit in GB (affects only events buffer)", type=float, default=8)
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
                     default='snappy')
 parser.add_argument("--log", help="Log level", default='info')
