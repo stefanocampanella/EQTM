@@ -70,7 +70,8 @@ def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: 
     tuples = zip(stds, deviations, correlations, data, template, list(travel_times.keys()))
     for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in tuples:
         if dev > threshold:
-            logging.debug(f"Skipping trace {xcor_trace} (std: {std}, average: {std_mean} ± {3 * std_std})")
+            logging.debug(f"Skipping {xcor_trace} "
+                          f"(correlation std: {std}, stream average: {std_mean} ± {3 * std_std})")
             correlations.remove(xcor_trace)
             data.remove(cont_trace)
             template.remove(temp_trace)
