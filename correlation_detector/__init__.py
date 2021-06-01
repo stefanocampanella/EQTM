@@ -60,15 +60,11 @@ def read_templates(templates_directory: Path,
                 logging.warning(f"{err} occurred while reading template {template_number}")
 
 
-def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream,
-                travel_times: Dict[str, float],
-                threshold: float = 10.0):  # min_std: float = 0.25, max_std: float = 1.5) -> None:
-    # mean_std = bn.nanmean(stds)
-    # for std, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(stds, correlations, data, template,
-    #                                                                  list(travel_times.keys())):
-    # if not min_std * mean_std < std / mean_std < max_std * mean_std:
+def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
+                mad_factor: float = 10.0) -> None:
     deviations = np.abs(stds - bn.nanmedian(stds))
-    deviations /= bn.nanmedian(deviations)
+    mad = bn.nanmedian(deviations)
+    threshold = mad_factor * mad + np.finfo(mad).eps
     for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in zip(stds, deviations, correlations, data, template,
                                                                        list(travel_times.keys())):
         if dev > threshold:
@@ -140,7 +136,8 @@ else:
 
 
 def process_detections(detections: Iterator[Tuple[int, float]], correlations: Stream, data: Stream, template: Stream,
-                       travel_times: Dict[str, float], pool: Executor, tolerance: int = 6) -> Generator[Dict, None, None]:
+                       travel_times: Dict[str, float], pool: Executor, tolerance: int = 6) -> Generator[
+    Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
@@ -171,15 +168,18 @@ def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, flo
     return height, correlation, shift
 
 
-def relative_magnitude(data_trace, template_trace, delta):
+def relative_magnitude(data_trace: Trace, template_trace: Trace, delta: float) -> float:
     duration = template_trace.stats.endtime - template_trace.stats.starttime
     starttime = template_trace.stats.starttime + delta
     endtime = starttime + duration
     data_trace_view = data_trace.slice(starttime=starttime, endtime=endtime)
-    data_amp = bn.nanmax(np.abs(data_trace_view.data))
-    template_amp = bn.nanmax(np.abs(template_trace.data))
-    if (ratio := data_amp / template_amp) > 0:
-        return log10(ratio)
+    if data_trace_view:
+        data_amp = bn.nanmax(np.abs(data_trace_view.data))
+        template_amp = bn.nanmax(np.abs(template_trace.data))
+        if (ratio := data_amp / template_amp) > 0:
+            return log10(ratio)
+        else:
+            return nan
     else:
         return nan
 
