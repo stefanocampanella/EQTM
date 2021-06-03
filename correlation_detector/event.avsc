@@ -4,7 +4,6 @@
   "fields": [
     {"name": "template", "type": "int"},
     {"name": "timestamp", "type": "double"},
-    {"name": "height", "type": "float"},
     {"name": "dmad", "type": "float"},
     {"name": "channels",
       "type": {

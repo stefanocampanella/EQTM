@@ -113,13 +113,12 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
 
 
 def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
-    template = template - bn.nanmean(template)
-    template_length = len(template)
     cross_correlation = correlate(data, template, stream)
+    template_length = len(template)
     pad = len(cross_correlation) - (len(data) - template_length)
     pad1, pad2 = (pad + 1) // 2, pad // 2
-    data = np.hstack([np.zeros(pad1), data, np.zeros(pad2)])
-    norm = np.sqrt(template_length * bn.move_var(data, template_length)[template_length:] * bn.ss(template))
+    padded_data = np.hstack([np.zeros(pad1 + template_length), data, np.zeros(pad2)])
+    norm = template_length * bn.move_std(padded_data, template_length)[2 * template_length:] * bn.nanstd(template)
     mask = norm > np.finfo(cross_correlation.dtype).eps
     np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
     cross_correlation[~mask] = 0
@@ -138,15 +137,19 @@ else:
         return np.correlate(data, template, mode='valid')
 
 
+def max_filter(data, pixels):
+    data = np.hstack([np.full(pixels, -1.0), data, np.full(pixels, -1.0)])
+    return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
+
+
 def process_detections(detections: Iterator[Tuple[int, float]], correlations: Stream, data: Stream, template: Stream,
-                       travel_times: Dict[str, float], pool: Executor, tolerance: int = 6) -> Generator[
-    Dict, None, None]:
+                       travel_times: Dict[str, float], pool: Executor, tolerance: int) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
     template_starttime = min(trace.stats.starttime for trace in template)
 
-    def process_detection(peak, peak_height):
+    def process_detection(peak):
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
         delta = trigger_time - template_starttime
@@ -156,9 +159,9 @@ def process_detections(detections: Iterator[Tuple[int, float]], correlations: St
             height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
             channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})
-        return {'timestamp': event_date.timestamp, 'height': peak_height, 'channels': channels}
+        return {'timestamp': event_date.timestamp, 'channels': channels}
 
-    for future in as_completed(pool.submit(process_detection, peak, peak_height) for peak, peak_height in detections):
+    for future in as_completed(pool.submit(process_detection, peak) for peak in detections):
         yield future.result()
 
 
@@ -195,20 +198,21 @@ def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: floa
     return bn.nanmean(magnitudes[deviations < threshold])
 
 
-def preprocess(detections, catalog, threshold: float = 0.35, min_channels: int = 6, mag_relative_threshold=2.0):
+def preprocess(detections, catalog, threshold: float, min_channels: int, mag_relative_threshold: float):
     for detection in detections:
         channels = detection['channels']
         num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
         if num_channels >= min_channels:
             timestamp = UTCDateTime(detection['timestamp'])
+            height = sum(channel['height'] for channel in channels) / len(channels)
             correlation = sum(channel['correlation'] for channel in channels) / len(channels)
             template_magnitude = catalog.iloc[detection['template'] - 1]
             magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
                                            mag_relative_threshold)
-            detection.update({'datetime': timestamp, 'num_channels': num_channels, 'correlation': correlation,
-                              'magnitude': magnitude, 'template_magnitude': template_magnitude, 'channels': channels,
-                              'crt_pre': detection['height'] / detection['dmad'],
-                              'crt_post': correlation / detection['dmad']})
+            detection.update({'datetime': timestamp, 'height': height, 'correlation': correlation,
+                              'magnitude': magnitude, 'template_magnitude': template_magnitude,
+                              'channels': channels, 'num_channels': num_channels,
+                              'crt_pre': height / detection['dmad'], 'crt_post': correlation / detection['dmad']})
             for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
                 detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
             yield detection

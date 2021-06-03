@@ -8,12 +8,12 @@ from time import perf_counter as timer
 
 import bottleneck as bn
 import numpy as np
+from fastavro import writer
 from fastavro.schema import load_schema
 from obspy import Stream
 from psutil import cpu_count
 from scipy.signal import find_peaks
 from tqdm import tqdm
-from fastavro import writer
 
 try:
     import cupy
@@ -27,15 +27,12 @@ parser.add_argument("data", help="Continuous data path", type=Path)
 parser.add_argument("travel_times", help="Path to travel times directory", type=Path)
 parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
-parser.add_argument("--max_channels", help="Maximum number of channels used for computing cross-correlation", type=int,
-                    default=18)
-parser.add_argument("--std_threshold", help="Scale factor of correlation std MAD threshold", type=float, default=8)
+parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
+parser.add_argument("--std_filter", help="Scale factor of correlation std MAD threshold", type=float, default=4.0)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
-parser.add_argument("--relative_height", help="Scale factor of mean correlation peak threshold", type=float,
-                    default=12.0)
-parser.add_argument("--relative_distance", help="Scale factor of mean correlation peak distance", type=float,
-                    default=2.0)
+parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.6)
+parser.add_argument("--distance", help="Scale factor of mean correlation peak distance", type=float, default=2.0)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--memory_limit", help="Memory limit in GB (affects only events buffer)", type=float, default=8)
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
@@ -77,14 +74,15 @@ if __name__ == '__main__':
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 if correlations:
                     stds = np.fromiter(pool.map(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
-                    cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_threshold)
-                    mean_correlation = bn.nanmean([trace.data for trace in correlations], axis=0)
+                    cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_filter)
+                    mean_correlation = bn.nanmean(list(pool.map(lambda trace: cd.max_filter(trace.data,
+                                                                                            cli_args.tolerance),
+                                                                correlations)), axis=0)
                     dmad = bn.nanmedian(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
-                    height = cli_args.relative_height * dmad
-                    distance = max(trace.stats.npts for trace in template)
-                    peaks, properties = find_peaks(mean_correlation, height=height, distance=distance)
-                    detections = cd.process_detections(zip(peaks, properties['peak_heights']), correlations, data,
-                                                       template, ttimes, pool, tolerance=cli_args.tolerance)
+                    peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
+                                          distance=cli_args.distance * max(trace.stats.npts for trace in template))
+                    detections = cd.process_detections(peaks, correlations, data, template, ttimes, pool,
+                                                       cli_args.tolerance)
                     for detection in detections:
                         detection.update({'template': index, 'dmad': dmad})
                         events_buffer.append(detection)
