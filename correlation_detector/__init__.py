@@ -23,7 +23,8 @@ def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
     logging.info(f"Reading continuous data from {path}")
     with path.open('rb') as file:
         data = read(file, dtype=np.float32)
-    data.merge(fill_value=0)
+    data.merge(method=1, fill_value=0)
+    data.detrend("constant")
     data.filter("bandpass", freqmin=freqmin, freqmax=freqmax, zerophase=True)
     starttime = min(trace.stats.starttime for trace in data)
     endtime = max(trace.stats.endtime for trace in data)
@@ -54,7 +55,8 @@ def read_templates(templates_directory: Path,
                 logging.debug(f"Reading {template_path}")
                 with template_path.open('rb') as template_file:
                     template_stream = read(template_file, dtype=np.float32)
-                template_stream.merge(fill_value=0)
+                template_stream.merge(method=1, fill_value=0)
+                template_stream.detrend("constant")
                 yield template_number, template_stream, travel_times
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
