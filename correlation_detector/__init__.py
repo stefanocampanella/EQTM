@@ -112,7 +112,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray, stream, threshold=1e6) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray, stream, threshold=1e16) -> np.ndarray:
     template = template - np.mean(template)
     pad = template.size - 1
     data_mean = np.empty_like(data)
