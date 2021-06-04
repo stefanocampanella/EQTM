@@ -55,8 +55,6 @@ def read_templates(templates_directory: Path,
                 logging.debug(f"Reading {template_path}")
                 with template_path.open('rb') as template_file:
                     template_stream = read(template_file, dtype=np.float32)
-                template_stream.merge(method=1, fill_value=0)
-                template_stream.detrend("constant")
                 yield template_number, template_stream, travel_times
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
@@ -114,16 +112,23 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
-    cross_correlation = correlate(data, template, stream)
-    template_length = len(template)
-    pad = len(cross_correlation) - (len(data) - template_length)
-    pad1, pad2 = (pad + 1) // 2, pad // 2
-    padded_data = np.hstack([np.zeros(pad1 + template_length), data, np.zeros(pad2)])
-    norm = template_length * bn.move_std(padded_data, template_length)[2 * template_length:] * bn.nanstd(template)
-    mask = norm > np.finfo(cross_correlation.dtype).eps
+def correlate_data(data: np.ndarray, template: np.ndarray, stream, threshold=1e6) -> np.ndarray:
+    template = template - np.mean(template)
+    pad = template.size - 1
+    data_mean = np.empty_like(data)
+    data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
+    data_mean[-pad:] = data[-pad:]
+    data = data - data_mean
+    cross_correlation = np.empty_like(data)
+    cross_correlation[:-pad] = correlate(data, template, stream)
+    cross_correlation[-pad:] = 0.0
+    data_std = np.empty_like(data)
+    data_std[:-pad] = bn.move_std(data, template.size)[pad:]
+    data_std[-pad:] = 1.0
+    norm = template.size * np.std(template) * data_std
+    mask = norm > threshold * np.finfo(norm.dtype).eps
     np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-    cross_correlation[~mask] = 0
+    cross_correlation[~mask] = 0.0
     return cross_correlation
 
 
