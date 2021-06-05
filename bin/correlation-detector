@@ -29,6 +29,7 @@ parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
 parser.add_argument("--std_filter", help="Scale factor of correlation std MAD threshold", type=float, default=8.0)
+parser.add_argument("--peaks_filter", help="Scale factor of peaks MAD threshold", type=float, default=8.0)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.6)
@@ -75,12 +76,14 @@ if __name__ == '__main__':
                 if correlations:
                     stds = np.fromiter(pool.map(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
                     cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_filter)
-                    mean_correlation = bn.nanmean(list(pool.map(lambda trace: cd.max_filter(trace.data,
-                                                                                            cli_args.tolerance),
-                                                                correlations)), axis=0)
+                    optimized_correlations = Stream(traces=pool.map(lambda trace: cd.max_filter(trace.data,
+                                                                                                cli_args.tolerance),
+                                                                    correlations))
+                    mean_correlation = bn.nanmean(optimized_correlations, axis=0)
                     dmad = bn.nanmedian(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
                     peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                           distance=cli_args.distance * max(trace.stats.npts for trace in template))
+                    peaks = cd.filter_peaks(peaks, optimized_correlations, cli_args.threshold, cli_args.peaks_filter)
                     detections = cd.process_detections(peaks, correlations, data, template, ttimes, pool,
                                                        cli_args.tolerance)
                     for detection in detections:

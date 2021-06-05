@@ -3,7 +3,7 @@ import os
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
-from math import log10, nan
+from math import log10, nan, sqrt
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
@@ -112,7 +112,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray, stream, threshold=1e16) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
     template = template - np.mean(template)
     pad = template.size - 1
     data_mean = np.empty_like(data)
@@ -126,9 +126,9 @@ def correlate_data(data: np.ndarray, template: np.ndarray, stream, threshold=1e1
     data_std[:-pad] = bn.move_std(data, template.size)[pad:]
     data_std[-pad:] = 1.0
     norm = template.size * np.std(template) * data_std
-    mask = norm > threshold * np.finfo(norm.dtype).eps
-    np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
+    mask = norm != 0.0
     cross_correlation[~mask] = 0.0
+    np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
     return cross_correlation
 
 
@@ -149,7 +149,16 @@ def max_filter(data, pixels):
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
 
 
-def process_detections(detections: Iterator[Tuple[int, float]], correlations: Stream, data: Stream, template: Stream,
+def filter_peaks(peaks, correlations, threshold, factor):
+    for peak in peaks:
+        xcs = np.fromiter((trace.data[peak] for trace in correlations), dtype=float)
+        deviations = np.abs(xcs - np.median(xcs))
+        if np.mean(xcs[deviations < factor * np.median(deviations)]) > threshold:
+            yield peak
+
+
+
+def process_detections(detections: Iterator[int], correlations: Stream, data: Stream, template: Stream,
                        travel_times: Dict[str, float], pool: Executor, tolerance: int) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
