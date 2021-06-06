@@ -3,7 +3,7 @@ import os
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
-from math import log10, nan, sqrt
+from math import log10, nan
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
@@ -155,7 +155,6 @@ def filter_peaks(peaks, correlations, threshold, factor):
         deviations = np.abs(xcs - np.median(xcs))
         if np.mean(xcs[deviations < factor * np.median(deviations)]) > threshold:
             yield peak
-
 
 
 def process_detections(detections: Iterator[int], correlations: Stream, data: Stream, template: Stream,
