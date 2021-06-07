@@ -16,5 +16,6 @@ dependencies:
   - lxml
   - fastavro
   - python-snappy
+  - numba
   - pip:
     - obspy
