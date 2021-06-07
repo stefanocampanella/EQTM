@@ -3,11 +3,12 @@ import os
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
-from math import log10, nan
+from math import log10, nan, sqrt
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
 import bottleneck as bn
+import numba
 import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace, UTCDateTime
@@ -24,7 +25,7 @@ def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
     with path.open('rb') as file:
         data = read(file, dtype=np.float32)
     data.merge(method=1, fill_value=0)
-    data.detrend("constant")
+    # data.detrend("constant")
     data.filter("bandpass", freqmin=freqmin, freqmax=freqmax, zerophase=True)
     starttime = min(trace.stats.starttime for trace in data)
     endtime = max(trace.stats.endtime for trace in data)
@@ -115,44 +116,36 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
 if cupy:
     # noinspection PyUnresolvedReferences
     def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
-        template = template - np.mean(template)
         pad = template.size - 1
-        data_mean = np.empty_like(data)
-        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
-        data_mean[-pad:] = data[-pad:]
+        padded_data = np.empty(data.size + pad, dtype=data.dtype)
+        padded_data[:-pad] = data
+        padded_data[-pad:] = data[:pad]
+        data_mean = bn.move_mean(padded_data, template.size)[pad:]
         data = data - data_mean
-        cross_correlation = np.empty_like(data)
         with stream:
-            cu_cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cross_correlation[:-pad] = cupy.asnumpy(cu_cross_correlation, stream=stream)
-        cross_correlation[-pad:] = 0.0
-        data_std = np.empty_like(data)
-        data_std[:-pad] = bn.move_std(data, template.size)[pad:]
-        data_std[-pad:] = 1.0
-        norm = template.size * np.std(template) * data_std
+            cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
+        norm = template.size * bn.nanstd(template) * bn.move_std(padded_data, template.size)[pad:]
         mask = norm != 0.0
-        cross_correlation[~mask] = 0.0
         np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
+        cross_correlation[~mask] = 0.0
         return cross_correlation
 else:
-    def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
-        template = template - np.mean(template)
-        pad = template.size - 1
-        data_mean = np.empty_like(data)
-        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
-        data_mean[-pad:] = data[-pad:]
-        data = data - data_mean
-        cross_correlation = np.empty_like(data)
-        cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
-        cross_correlation[-pad:] = 0.0
-        data_std = np.empty_like(data)
-        data_std[:-pad] = bn.move_std(data, template.size)[pad:]
-        data_std[-pad:] = 1.0
-        norm = template.size * np.std(template) * data_std
-        mask = norm != 0.0
-        cross_correlation[~mask] = 0.0
-        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-        return cross_correlation
+    @numba.njit(nogil=True, cache=True, fastmath=True)
+    def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
+        correlation = np.empty_like(data)
+        window = np.empty_like(template)
+        r = 1 / sqrt(np.dot(template, template))
+        for n in range(data.size - template.size):
+            window[:] = data[n:n + template.size]
+            window -= np.mean(window)
+            s = np.dot(window, window)
+            if s:
+                correlation[n] = r * np.dot(window, template) / sqrt(s)
+            else:
+                correlation[n] = 0.0
+        correlation[data.size - template.size:data.size] = 0.0
+        return correlation
 
 
 def max_filter(data, pixels):
@@ -169,7 +162,7 @@ def filter_peaks(peaks, correlations, threshold, factor):
 
 
 def process_detections(detections: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                       travel_times: Dict[str, float], pool: Executor, tolerance: int) -> Generator[Dict, None, None]:
+                       travel_times: Dict[str, float], tolerance: int, pool: Executor) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
