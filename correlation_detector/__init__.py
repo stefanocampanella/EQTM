@@ -126,9 +126,9 @@ if cupy:
             cu_correlation = cupy.empty_like(data)
             cu_correlation[:-pad] = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
             cu_correlation[-pad:] = 0.0
-            norm = cupy.asarray(data_norm(data, template))
-            mask = norm != 0.0
-            cupy.divide(cu_correlation, norm, where=mask, out=cu_correlation)
+            data_norm = cupy.asarray(norm(data, template))
+            mask = data_norm != 0.0
+            cupy.divide(cu_correlation, data_norm, where=mask, out=cu_correlation)
             cu_correlation[~mask] = 0.0
             correlation = cupy.asnumpy(cu_correlation, stream=stream)
         return correlation
@@ -167,9 +167,9 @@ else:
         data_sqmean = np.empty_like(data)
         data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
         data_sqmean[-pad:] = 0.0
-        norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
-        np.sqrt(norm, where=norm > 0.0, out=norm)
-        return norm
+        data_norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
+        np.sqrt(data_norm, where=data_norm > 0.0, out=data_norm)
+        return data_norm
 
 
 # @numba.njit(nogil=True, cache=True, fastmath=True)
