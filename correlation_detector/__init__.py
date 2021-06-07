@@ -112,36 +112,47 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
-    template = template - np.mean(template)
-    pad = template.size - 1
-    data_mean = np.empty_like(data)
-    data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
-    data_mean[-pad:] = data[-pad:]
-    data = data - data_mean
-    cross_correlation = np.empty_like(data)
-    cross_correlation[:-pad] = correlate(data, template, stream)
-    cross_correlation[-pad:] = 0.0
-    data_std = np.empty_like(data)
-    data_std[:-pad] = bn.move_std(data, template.size)[pad:]
-    data_std[-pad:] = 1.0
-    norm = template.size * np.std(template) * data_std
-    mask = norm != 0.0
-    cross_correlation[~mask] = 0.0
-    np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-    return cross_correlation
-
-
 if cupy:
     # noinspection PyUnresolvedReferences
-    def correlate(data, template, stream):
+    def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
+        template = template - np.mean(template)
+        pad = template.size - 1
+        data_mean = np.empty_like(data)
+        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
+        data_mean[-pad:] = data[-pad:]
+        data = data - data_mean
+        cross_correlation = np.empty_like(data)
         with stream:
-            cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
+            cu_cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cross_correlation[:-pad] = cupy.asnumpy(cu_cross_correlation, stream=stream)
+        cross_correlation[-pad:] = 0.0
+        data_std = np.empty_like(data)
+        data_std[:-pad] = bn.move_std(data, template.size)[pad:]
+        data_std[-pad:] = 1.0
+        norm = template.size * np.std(template) * data_std
+        mask = norm != 0.0
+        cross_correlation[~mask] = 0.0
+        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
         return cross_correlation
 else:
-    def correlate(data, template, stream):
-        return np.correlate(data, template, mode='valid')
+    def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
+        template = template - np.mean(template)
+        pad = template.size - 1
+        data_mean = np.empty_like(data)
+        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
+        data_mean[-pad:] = data[-pad:]
+        data = data - data_mean
+        cross_correlation = np.empty_like(data)
+        cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
+        cross_correlation[-pad:] = 0.0
+        data_std = np.empty_like(data)
+        data_std[:-pad] = bn.move_std(data, template.size)[pad:]
+        data_std[-pad:] = 1.0
+        norm = template.size * np.std(template) * data_std
+        mask = norm != 0.0
+        cross_correlation[~mask] = 0.0
+        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
+        return cross_correlation
 
 
 def max_filter(data, pixels):
@@ -151,9 +162,9 @@ def max_filter(data, pixels):
 
 def filter_peaks(peaks, correlations, threshold, factor):
     for peak in peaks:
-        xcs = np.fromiter((trace.data[peak] for trace in correlations), dtype=float)
-        deviations = np.abs(xcs - np.median(xcs))
-        if np.mean(xcs[deviations < factor * np.median(deviations)]) > threshold:
+        peak_correlations = np.fromiter((trace.data[peak] for trace in correlations), dtype=float)
+        deviations = np.abs(peak_correlations - np.median(peak_correlations))
+        if np.mean(peak_correlations[deviations < factor * np.median(deviations)]) > threshold:
             yield peak
 
 
