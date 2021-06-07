@@ -3,7 +3,7 @@ import os
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
-from math import log10, nan
+from math import log10, nan, sqrt
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
@@ -118,60 +118,49 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
     return trace
 
 
-if cupy and numba:
+if cupy:
     # noinspection PyUnresolvedReferences
     def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
         pad = template.size - 1
-        cross_correlation = np.empty_like(data)
         with stream:
-            cu_cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cross_correlation[:-pad] = cupy.asnumpy(cu_cross_correlation, stream=stream)
-        cross_correlation[-pad:] = 0.0
-        norm = bn.ss(template) * move_sqres(data, template.size)
-        np.sqrt(norm, where=norm > 0.0, out=norm)
-        mask = norm != 0.0
-        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-        cross_correlation[~mask] = 0.0
-        return cross_correlation
-elif cupy:
-    # noinspection PyUnresolvedReferences
-    def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
-        pad = template.size - 1
-        cross_correlation = np.empty_like(data)
-        with stream:
-            cu_cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cross_correlation[:-pad] = cupy.asnumpy(cu_cross_correlation, stream=stream)
-        cross_correlation[-pad:] = 0.0
-        data_mean = np.empty_like(data)
-        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
-        data_mean[-pad:] = 0.0
-        data_sqmean = np.empty_like(data)
-        data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
-        data_sqmean[-pad:] = 0.0
-        norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
-        np.sqrt(norm, where=norm > 0.0, out=norm)
-        mask = norm != 0.0
-        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-        cross_correlation[~mask] = 0.0
-        return cross_correlation
-elif numba:
-    def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
-        pad = template.size - 1
-        cross_correlation = np.empty_like(data)
-        cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
-        cross_correlation[-pad:] = 0.0
-        norm = bn.ss(template) * move_sqres(data, template.size)
-        np.sqrt(norm, where=norm > 0.0, out=norm)
-        mask = norm != 0.0
-        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-        cross_correlation[~mask] = 0.0
-        return cross_correlation
+            cu_correlation = cupy.empty_like(data)
+            cu_correlation[:-pad] = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cu_correlation[-pad:] = 0.0
+            norm = cupy.asarray(data_norm(data, template))
+            mask = norm != 0.0
+            cupy.divide(cu_correlation, norm, where=mask, out=cu_correlation)
+            cu_correlation[~mask] = 0.0
+            correlation = cupy.asnumpy(cu_correlation, stream=stream)
+        return correlation
 else:
     def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
         pad = template.size - 1
         cross_correlation = np.empty_like(data)
         cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
         cross_correlation[-pad:] = 0.0
+        data_norm = norm(data, template)
+        mask = data_norm != 0.0
+        np.divide(cross_correlation, data_norm, where=mask, out=cross_correlation)
+        cross_correlation[~mask] = 0.0
+        return cross_correlation
+
+
+if numba:
+    @numba.njit(nogil=True, cache=True, fastmath=True)
+    def norm(data, template):
+        data_norm = np.empty_like(data)
+        template_norm = np.dot(template, template)
+        window = template.size
+        x = np.empty(window, dtype=data.dtype)
+        for n in range(data.size - window):
+            x[:] = data[n:n + window]
+            x -= np.mean(x)
+            data_norm[n] = sqrt(template_norm * np.dot(x, x))
+        data_norm[-window:] = 0.0
+        return data_norm
+else:
+    def norm(data, template):
+        pad = template.size - 1
         data_mean = np.empty_like(data)
         data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
         data_mean[-pad:] = 0.0
@@ -180,21 +169,7 @@ else:
         data_sqmean[-pad:] = 0.0
         norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
         np.sqrt(norm, where=norm > 0.0, out=norm)
-        mask = norm != 0.0
-        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
-        cross_correlation[~mask] = 0.0
-        return cross_correlation
-
-if numba:
-    @numba.njit(nogil=True, cache=True, fastmath=True)
-    def move_sqres(data, window):
-        sqres = np.empty_like(data)
-        x = np.empty(window, dtype=data.dtype)
-        for n in range(data.size - window):
-            x[:] = data[n:n + window]
-            x -= np.mean(x)
-            sqres[n] = np.dot(x, x)
-        return sqres
+        return norm
 
 
 # @numba.njit(nogil=True, cache=True, fastmath=True)
