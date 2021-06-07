@@ -3,12 +3,11 @@ import os
 import re
 from collections import OrderedDict
 from concurrent.futures import as_completed, Executor
-from math import log10, nan, sqrt
+from math import log10, nan
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
 import bottleneck as bn
-import numba
 import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace, UTCDateTime
@@ -18,6 +17,11 @@ try:
     import cupy
 except ImportError:
     cupy = None
+
+try:
+    import numba
+except ImportError:
+    numba = None
 
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
@@ -114,39 +118,100 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
     return trace
 
 
-if cupy:
+if cupy and numba:
     # noinspection PyUnresolvedReferences
     def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
         pad = template.size - 1
-        padded_data = np.empty(data.size + pad, dtype=data.dtype)
-        padded_data[:-pad] = data
-        padded_data[-pad:] = data[:pad]
-        data_mean = bn.move_mean(padded_data, template.size)[pad:]
-        data = data - data_mean
+        cross_correlation = np.empty_like(data)
         with stream:
-            cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cross_correlation = cupy.asnumpy(cross_correlation, stream=stream)
-        norm = template.size * bn.nanstd(template) * bn.move_std(padded_data, template.size)[pad:]
+            cu_cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cross_correlation[:-pad] = cupy.asnumpy(cu_cross_correlation, stream=stream)
+        cross_correlation[-pad:] = 0.0
+        norm = bn.ss(template) * move_sqres(data, template.size)
+        np.sqrt(norm, where=norm > 0.0, out=norm)
+        mask = norm != 0.0
+        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
+        cross_correlation[~mask] = 0.0
+        return cross_correlation
+elif cupy:
+    # noinspection PyUnresolvedReferences
+    def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
+        pad = template.size - 1
+        cross_correlation = np.empty_like(data)
+        with stream:
+            cu_cross_correlation = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+            cross_correlation[:-pad] = cupy.asnumpy(cu_cross_correlation, stream=stream)
+        cross_correlation[-pad:] = 0.0
+        data_mean = np.empty_like(data)
+        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
+        data_mean[-pad:] = 0.0
+        data_sqmean = np.empty_like(data)
+        data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
+        data_sqmean[-pad:] = 0.0
+        norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
+        np.sqrt(norm, where=norm > 0.0, out=norm)
+        mask = norm != 0.0
+        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
+        cross_correlation[~mask] = 0.0
+        return cross_correlation
+elif numba:
+    def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
+        pad = template.size - 1
+        cross_correlation = np.empty_like(data)
+        cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
+        cross_correlation[-pad:] = 0.0
+        norm = bn.ss(template) * move_sqres(data, template.size)
+        np.sqrt(norm, where=norm > 0.0, out=norm)
         mask = norm != 0.0
         np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
         cross_correlation[~mask] = 0.0
         return cross_correlation
 else:
-    @numba.njit(nogil=True, cache=True, fastmath=True)
     def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
-        correlation = np.empty_like(data)
-        window = np.empty_like(template)
-        r = 1 / sqrt(np.dot(template, template))
-        for n in range(data.size - template.size):
-            window[:] = data[n:n + template.size]
-            window -= np.mean(window)
-            s = np.dot(window, window)
-            if s:
-                correlation[n] = r * np.dot(window, template) / sqrt(s)
-            else:
-                correlation[n] = 0.0
-        correlation[data.size - template.size:data.size] = 0.0
-        return correlation
+        pad = template.size - 1
+        cross_correlation = np.empty_like(data)
+        cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
+        cross_correlation[-pad:] = 0.0
+        data_mean = np.empty_like(data)
+        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
+        data_mean[-pad:] = 0.0
+        data_sqmean = np.empty_like(data)
+        data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
+        data_sqmean[-pad:] = 0.0
+        norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
+        np.sqrt(norm, where=norm > 0.0, out=norm)
+        mask = norm != 0.0
+        np.divide(cross_correlation, norm, where=mask, out=cross_correlation)
+        cross_correlation[~mask] = 0.0
+        return cross_correlation
+
+if numba:
+    @numba.njit(nogil=True, cache=True, fastmath=True)
+    def move_sqres(data, window):
+        sqres = np.empty_like(data)
+        x = np.empty(window, dtype=data.dtype)
+        for n in range(data.size - window):
+            x[:] = data[n:n + window]
+            x -= np.mean(x)
+            sqres[n] = np.dot(x, x)
+        return sqres
+
+
+# @numba.njit(nogil=True, cache=True, fastmath=True)
+# def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
+#     correlation = np.empty_like(data)
+#     window = np.empty_like(template)
+#     r = 1 / sqrt(np.dot(template, template))
+#     for n in range(data.size - template.size):
+#         window[:] = data[n:n + template.size]
+#         window -= np.mean(window)
+#         s = np.dot(window, window)
+#         if s:
+#             correlation[n] = r * np.dot(window, template) / sqrt(s)
+#         else:
+#             correlation[n] = 0.0
+#     correlation[data.size - template.size:data.size] = 0.0
+#     return correlation
 
 
 def max_filter(data, pixels):
