@@ -2,6 +2,7 @@
 import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from importlib import resources
 from pathlib import Path
 from time import perf_counter as timer
@@ -52,7 +53,7 @@ if cupy:
     # noinspection PyUnresolvedReferences
     streams = [cupy.cuda.Stream() for _ in range(cli_args.max_channels)]
 else:
-    streams = [None for _ in range(cli_args.max_channels)]
+    streams = [nullcontext() for _ in range(cli_args.max_channels)]
 
 if __name__ == '__main__':
     tic = timer()

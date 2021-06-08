@@ -1,6 +1,7 @@
 import logging
 import re
 from collections import OrderedDict
+from contextlib import nullcontext
 from math import log10, nan, sqrt
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
@@ -100,13 +101,15 @@ def find_trace(stream: Stream, trace_id: str):
             return trace
 
 
-def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=None) -> Trace:
+def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nullcontext()) -> Trace:
     header = {"network": continuous.stats.network,
               "station": continuous.stats.station,
               "channel": continuous.stats.channel,
               "starttime": continuous.stats.starttime,
               "sampling_rate": continuous.stats.sampling_rate}
-    trace = Trace(data=correlate_data(continuous.data, template.data, stream), header=header)
+    with stream:
+        correlation = correlate_data(continuous.data, template.data)
+    trace = Trace(data=correlation, header=header)
 
     duration = continuous.stats.endtime - continuous.stats.starttime
     starttime = trace.stats.starttime + delay
@@ -117,46 +120,60 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=Non
 
 if cupy:
     # noinspection PyUnresolvedReferences
-    def correlate_data(data: np.ndarray, template: np.ndarray, stream) -> np.ndarray:
+    def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
+        data = cupy.asarray(data)
+        template = cupy.asarray(template)
         pad = template.size - 1
-        with stream:
-            cu_correlation = cupy.empty_like(data)
-            cu_correlation[:-pad] = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
-            cu_correlation[-pad:] = 0.0
-            correlation = cupy.asnumpy(cu_correlation, stream=stream)
-        data_norm = norm(data, template)
-        mask = data_norm != 0.0
-        np.divide(correlation, data_norm, where=mask, out=correlation)
-        correlation[~mask] = 0.0
-        return correlation
+        correlation = cupy.empty_like(data)
+        correlation[:-pad] = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+        correlation[-pad:] = 0.0
+        data_mean = move_mean(data, template.size)
+        data_sqmean = move_mean(data * data, template.size)
+        norm = template.size * cupy.dot(template, template) * (data_sqmean - data_mean * data_mean)
+        mask = norm <= 0.0
+        norm[mask] = 1.0
+        norm = cupy.sqrt(norm, out=norm)
+        correlation[mask] = 0.0
+        cupy.divide(correlation, norm, out=correlation)
+        return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
+
+
+    # noinspection PyUnresolvedReferences
+    def move_mean(data, window):
+        pad = window - 1
+        mean = cupy.empty_like(data)
+        csum = cupy.cumsum(data)
+        mean[0] = csum[pad] / window
+        mean[1:-pad] = (csum[window:] - csum[:-window]) / window
+        mean[-pad:] = 0.0
+        return mean
 else:
-    def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
+    def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
         pad = template.size - 1
         correlation = np.empty_like(data)
         correlation[:-pad] = np.correlate(data, template, mode='valid')
         correlation[-pad:] = 0.0
-        data_norm = norm(data, template)
-        mask = data_norm != 0.0
-        np.divide(correlation, data_norm, where=mask, out=correlation)
+        norm = correlation_norm(data, template)
+        mask = norm != 0.0
+        np.divide(correlation, norm, where=mask, out=correlation)
         correlation[~mask] = 0.0
         return correlation
 
-
 if numba:
     @numba.njit(nogil=True, cache=True, fastmath=True)
-    def norm(data, template):
-        data_norm = np.empty_like(data)
+    def correlation_norm(data, template):
+        norm = np.empty_like(data)
         template_norm = np.dot(template, template)
         window = template.size
         x = np.empty(window, dtype=data.dtype)
         for n in range(data.size - window):
             x[:] = data[n:n + window]
             x -= np.mean(x)
-            data_norm[n] = sqrt(template_norm * np.dot(x, x))
-        data_norm[-window:] = 0.0
-        return data_norm
+            norm[n] = sqrt(template_norm * np.dot(x, x))
+        norm[-window:] = 0.0
+        return norm
 else:
-    def norm(data, template):
+    def correlation_norm(data, template):
         pad = template.size - 1
         data_mean = np.empty_like(data)
         data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
@@ -164,9 +181,9 @@ else:
         data_sqmean = np.empty_like(data)
         data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
         data_sqmean[-pad:] = 0.0
-        data_norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
-        np.sqrt(data_norm, where=data_norm > 0.0, out=data_norm)
-        return data_norm
+        norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
+        np.sqrt(norm, where=norm > 0.0, out=norm)
+        return norm
 
 
 # @numba.njit(nogil=True, cache=True, fastmath=True)
