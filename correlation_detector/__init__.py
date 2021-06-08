@@ -127,19 +127,19 @@ if cupy:
         data_norm = norm(data, template)
         mask = data_norm != 0.0
         np.divide(correlation, data_norm, where=mask, out=correlation)
-        cross_correlation[~mask] = 0.0
+        correlation[~mask] = 0.0
         return correlation
 else:
     def correlate_data(data: np.ndarray, template: np.ndarray, stream=None) -> np.ndarray:
         pad = template.size - 1
-        cross_correlation = np.empty_like(data)
-        cross_correlation[:-pad] = np.correlate(data, template, mode='valid')
-        cross_correlation[-pad:] = 0.0
+        correlation = np.empty_like(data)
+        correlation[:-pad] = np.correlate(data, template, mode='valid')
+        correlation[-pad:] = 0.0
         data_norm = norm(data, template)
         mask = data_norm != 0.0
-        np.divide(cross_correlation, data_norm, where=mask, out=cross_correlation)
-        cross_correlation[~mask] = 0.0
-        return cross_correlation
+        np.divide(correlation, data_norm, where=mask, out=correlation)
+        correlation[~mask] = 0.0
+        return correlation
 
 
 if numba:
