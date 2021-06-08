@@ -13,13 +13,11 @@ from obspy import read, Stream, Trace, UTCDateTime
 try:
     import cupy
 except ImportError:
-    logging.debug("CuPy not available, falling back to CPU.")
     cupy = None
 
 try:
     import numba
 except ImportError:
-    logging.debug("Numba not available, falling back to bottleneck.")
     numba = None
 
 
