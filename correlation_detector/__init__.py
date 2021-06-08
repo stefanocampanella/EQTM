@@ -145,7 +145,7 @@ else:
 
 
 if numba:
-    @numba.njit(nogil=True, cache=True, fastmath=True)
+    @numba.njit(nogil=True, fastmath=True)
     def norm(data, template):
         data_norm = np.empty_like(data)
         template_norm = np.dot(template, template)
