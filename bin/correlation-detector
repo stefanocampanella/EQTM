@@ -78,6 +78,7 @@ if __name__ == '__main__':
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
+                logging.debug(f"Found {peaks.size} peaks")
                 peaks_batches = np.array_split(peaks, max_workers)
                 detections_batches = pool.map(lambda batch: cd.process_detections(batch, correlations, data, template,
                                                                                   ttimes, cli_args.tolerance),
