@@ -19,7 +19,7 @@ except ImportError:
 try:
     import numba
 except ImportError:
-    logging.debug("Numba not available, falling back to bottleneck")
+    logging.debug("Numba not available, falling back to bottleneck.")
     numba = None
 
 
@@ -145,7 +145,7 @@ else:
 
 
 if numba:
-    @numba.njit(nogil=True, fastmath=True)
+    @numba.njit(nogil=True, cache=True, fastmath=True)
     def norm(data, template):
         data_norm = np.empty_like(data)
         template_norm = np.dot(template, template)
@@ -191,14 +191,6 @@ else:
 def max_filter(data, pixels):
     data = np.hstack([np.full(pixels, -1.0), data, np.full(pixels, -1.0)])
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
-
-
-def filter_peaks(peaks, correlations, threshold, factor):
-    for peak in peaks:
-        peak_correlations = np.fromiter((trace.data[peak] for trace in correlations), dtype=float)
-        deviations = np.abs(peak_correlations - np.median(peak_correlations))
-        if np.mean(peak_correlations[deviations < factor * np.median(deviations)]) > threshold:
-            yield peak
 
 
 def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,

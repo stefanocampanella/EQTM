@@ -79,11 +79,7 @@ if __name__ == '__main__':
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
                 logging.debug(f"Found {peaks.size} peaks")
-                peaks_batches = np.array_split(peaks, max_workers)
-                detections_batches = pool.map(lambda batch: cd.process_detections(batch, correlations, data, template,
-                                                                                  ttimes, cli_args.tolerance),
-                                              peaks_batches)
-                detections = itertools.chain.from_iterable(detections_batches)
+                detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance)
                 events_buffer.append({'template': index, 'dmad': dmad, 'detections': list(detections)})
             except BaseException as error:
                 if cli_args.stop:
