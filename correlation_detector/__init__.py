@@ -127,9 +127,10 @@ if cupy:
             cu_correlation[:-pad] = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
             cu_correlation[-pad:] = 0.0
             data_norm = cupy.asarray(norm(data, template))
-            mask = data_norm != 0.0
-            cupy.divide(cu_correlation, data_norm, where=mask, out=cu_correlation)
-            cu_correlation[~mask] = 0.0
+            mask = data_norm == 0.0
+            data_norm[mask] = 1.0
+            cupy.divide(cu_correlation, data_norm, out=cu_correlation)
+            cu_correlation[mask] = 0.0
             correlation = cupy.asnumpy(cu_correlation, stream=stream)
         return correlation
 else:
