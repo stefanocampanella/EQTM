@@ -170,6 +170,16 @@ def max_filter(data, pixels):
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
 
 
+def filter_peaks(peaks, shifted_correlations, factor, threshold):
+    for peak in peaks:
+        peak_correlations = np.fromiter((trace.data[peak] for trace in shifted_correlations), dtype=float)
+        deviations = np.abs(peak_correlations - np.median(peak_correlations))
+        mad = bn.median(deviations)
+        valid_correlations = peak_correlations[deviations < factor * mad]
+        if np.mean(valid_correlations) > threshold:
+            yield peak
+
+
 def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
                        travel_times: Dict[str, float], tolerance: int) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
