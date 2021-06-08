@@ -53,7 +53,6 @@ def read_templates(templates_directory: Path,
                 with template_path.open('rb') as template_file:
                     template_stream = read(template_file, dtype=np.float32)
                 template_stream.merge(fill_value=0)
-                template_stream.detrend('constant')
                 yield template_number, template_stream, travel_times
             except OSError as err:
                 logging.warning(f"{err} occurred while reading template {template_number}")
