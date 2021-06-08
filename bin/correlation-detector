@@ -34,7 +34,6 @@ parser.add_argument("--highpass", help="Highpass filter frequency", type=float, 
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.6)
 parser.add_argument("--distance", help="Scale factor of mean correlation peak distance", type=float, default=2.0)
 parser.add_argument("--tolerance", help="Maximum lag in samples", type=int, default=6)
-parser.add_argument("--memory_limit", help="Memory limit in GB (affects only events buffer)", type=float, default=8)
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
                     default='snappy')
 parser.add_argument("--log", help="Log level", default='info')
@@ -61,10 +60,6 @@ if __name__ == '__main__':
     templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times),
                      total=len(list(cli_args.travel_times.glob('*.ttimes'))),
                      disable=not cli_args.progress)
-    output = Path(cli_args.output + '.avro')
-    if output.exists():
-        logging.warning(f"{output} already exists, it will be overwritten.")
-        output.unlink()
     events_buffer = []
     max_workers = cli_args.threads if cli_args.threads > 0 else max(cpu_count(logical=False), cli_args.max_channels)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -79,27 +74,21 @@ if __name__ == '__main__':
                                                               correlations))
                 mean_correlation = bn.nanmean(shifted_correlations, axis=0)
                 dmad = bn.nanmedian(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
+                template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
-                                      distance=cli_args.distance * max(trace.stats.npts for trace in template))
-                detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance,
-                                                   pool)
-                for detection in detections:
-                    detection.update({'template': index, 'dmad': dmad})
-                    events_buffer.append(detection)
+                                      distance=cli_args.distance * template_length)
+                detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance)
+                events_buffer.append({'template': index, 'dmad': dmad, 'detections': detections})
             except BaseException as error:
                 if cli_args.stop:
                     raise error
                 else:
                     logging.error(f"{error} occurred while processing template {index}")
-            finally:
-                if events_buffer and cd.memory_usage() > cli_args.memory_limit:
-                    with open(output, 'a+b') as file:
-                        logging.info(f"Flushing {len(events_buffer)} events to {file.name}")
-                        writer(file, schema, events_buffer, codec='snappy')
-                    events_buffer.clear()
-    if events_buffer:
-        with open(output, 'a+b') as file:
-            logging.info(f"Writing {len(events_buffer)} events to {file.name}")
-            writer(file, schema, events_buffer, codec='snappy')
+    output = Path(cli_args.output + '.avro')
+    if output.exists():
+        logging.warning(f"{output} already exists, it will be overwritten.")
+    with open(output, 'wb') as file:
+        logging.info(f"Writing to {file.name}")
+        writer(file, schema, cd.flatten(events_buffer), codec=cli_args.compression)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")

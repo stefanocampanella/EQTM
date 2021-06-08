@@ -1,8 +1,6 @@
 import logging
-import os
 import re
 from collections import OrderedDict
-from concurrent.futures import as_completed, Executor
 from math import log10, nan, sqrt
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
@@ -11,7 +9,6 @@ import bottleneck as bn
 import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace, UTCDateTime
-from psutil import Process
 
 try:
     import cupy
@@ -202,14 +199,14 @@ def filter_peaks(peaks, correlations, threshold, factor):
             yield peak
 
 
-def process_detections(detections: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                       travel_times: Dict[str, float], tolerance: int, pool: Executor) -> Generator[Dict, None, None]:
+def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
+                       travel_times: Dict[str, float], tolerance: int) -> Generator[Dict, None, None]:
     correlations_starttime = min(trace.stats.starttime for trace in correlations)
     correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
     travel_starttime = min(travel_times.values())
     template_starttime = min(trace.stats.starttime for trace in template)
 
-    def process_detection(peak):
+    for peak in peaks:
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
         delta = trigger_time - template_starttime
@@ -219,10 +216,7 @@ def process_detections(detections: Iterator[int], correlations: Stream, data: St
             height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
             channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})
-        return {'timestamp': event_date.timestamp, 'channels': channels}
-
-    for future in as_completed(pool.submit(process_detection, peak) for peak in detections):
-        yield future.result()
+        yield {'timestamp': event_date.timestamp, 'channels': channels}
 
 
 def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
@@ -278,6 +272,13 @@ def preprocess(detections, catalog, threshold: float, min_channels: int, mag_rel
             yield detection
 
 
+def flatten(events_buffer):
+    for template_data in events_buffer:
+        for detection in template_data['detections']:
+            detection.update({'template': template_data['template'], 'dmad': template_data['dmad']})
+            yield detection
+
+
 def read_zmap(catalog_path):
     logging.info(f"Reading catalog from {catalog_path}")
     template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
@@ -303,7 +304,3 @@ def format_cat(event):
     return f"{event['template']} {event['datetime'].isoformat()} {event['magnitude']:.2f} " \
            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
            f"{event['num_channels']}\n"
-
-
-def memory_usage():
-    return Process(os.getpid()).memory_info().rss / (1 << 30)
