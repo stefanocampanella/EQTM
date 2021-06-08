@@ -117,20 +117,34 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     trace.trim(starttime=starttime, endtime=endtime, nearest_sample=True, pad=True, fill_value=0)
     return trace
 
-
-if cupy:
+if cupy and numba:
+    # noinspection PyUnresolvedReferences
+    def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
+        pad = template.size - 1
+        cu_data = cupy.asarray(data)
+        cu_template = cupy.asarray(template)
+        correlation = cupy.empty_like(cu_data)
+        correlation[:-pad] = cupy.correlate(cu_data, cu_template, mode='valid')
+        correlation[-pad:] = 0.0
+        correlation = cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
+        norm = correlation_norm(data, template)
+        mask = norm != 0.0
+        np.divide(correlation, norm, where=mask, out=correlation)
+        correlation[~mask] = 0.0
+        return correlation
+elif cupy:
     # noinspection PyUnresolvedReferences
     def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
         data = cupy.asarray(data)
         template = cupy.asarray(template)
         pad = template.size - 1
         correlation = cupy.empty_like(data)
-        correlation[:-pad] = cupy.correlate(cupy.asarray(data), cupy.asarray(template), mode='valid')
+        correlation[:-pad] = cupy.correlate(data, template, mode='valid')
         correlation[-pad:] = 0.0
         data_mean = move_mean(data, template.size)
         data_sqmean = move_mean(data * data, template.size)
         norm = template.size * cupy.dot(template, template) * (data_sqmean - data_mean * data_mean)
-        mask = norm <= 0.0
+        mask = norm < np.finfo(norm.dtype).resolution
         norm[mask] = 1.0
         norm = cupy.sqrt(norm, out=norm)
         correlation[mask] = 0.0
