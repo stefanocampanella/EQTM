@@ -122,8 +122,9 @@ if cupy:
         correlation = cupy.empty_like(data)
         correlation[:-pad] = cupy.correlate(data, template, mode='valid')
         correlation[-pad:] = 0.0
-        data_mean = move_mean(data, template.size)
-        data_sqmean = move_mean(data * data, template.size)
+        data_mean = cu_move_mean(data, template.size)
+        cupy.subtract(correlation, data_mean * cupy.sum(template), out=correlation)
+        data_sqmean = cu_move_mean(data * data, template.size)
         norm = template.size * cupy.dot(template, template) * (data_sqmean - data_mean * data_mean)
         mask = norm <= 0.0
         norm[mask] = 1.0
@@ -134,7 +135,7 @@ if cupy:
 
 
     # noinspection PyUnresolvedReferences
-    def move_mean(data, window):
+    def cu_move_mean(data, window):
         pad = window - 1
         mean = cupy.empty_like(data)
         csum = cupy.cumsum(data)
@@ -149,26 +150,19 @@ else:
         correlation = np.empty_like(data)
         correlation[:-pad] = np.correlate(data, template, mode='valid')
         correlation[-pad:] = 0.0
-        norm = correlation_norm(data, template)
-        mask = norm != 0.0
-        np.divide(correlation, norm, where=mask, out=correlation)
-        correlation[~mask] = 0.0
-        return correlation
-
-
-    def correlation_norm(data, template):
-        pad = template.size - 1
         data_mean = np.empty_like(data)
         data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
         data_mean[-pad:] = 0.0
+        np.subtract(correlation, data_mean * bn.nansum(template), out=correlation)
         data_sqmean = np.empty_like(data)
         data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
         data_sqmean[-pad:] = 0.0
         norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
         mask = norm > 0.0
         np.sqrt(norm, where=mask, out=norm)
-        norm[~mask] = 0.0
-        return norm
+        np.divide(correlation, norm, where=mask, out=correlation)
+        correlation[~mask] = 0.0
+        return correlation
 
 
 def max_filter(data, pixels):
