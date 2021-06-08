@@ -117,6 +117,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     trace.trim(starttime=starttime, endtime=endtime, nearest_sample=True, pad=True, fill_value=0)
     return trace
 
+
 if cupy and numba:
     # noinspection PyUnresolvedReferences
     def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
