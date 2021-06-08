@@ -71,7 +71,7 @@ if __name__ == '__main__':
         for index, template, ttimes in templates:
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
-                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values()))
+                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 stds = np.fromiter(pool.map(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
                 cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_filter)
                 shifted_correlations = Stream(traces=pool.map(lambda trace: cd.max_filter(trace.data,
