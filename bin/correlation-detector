@@ -78,7 +78,7 @@ if __name__ == '__main__':
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
                 detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance)
-                events_buffer.append({'template': index, 'dmad': dmad, 'detections': detections})
+                events_buffer.append({'template': index, 'dmad': dmad, 'detections': list(detections)})
             except BaseException as error:
                 if cli_args.stop:
                     raise error
