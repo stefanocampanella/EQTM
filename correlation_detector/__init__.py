@@ -126,7 +126,7 @@ if cupy:
             correlation = cupy.asnumpy(cu_correlation, stream=stream)
         data_norm = norm(data, template)
         mask = data_norm != 0.0
-        np.divide(cross_correlation, data_norm, where=mask, out=cross_correlation)
+        np.divide(correlation, data_norm, where=mask, out=correlation)
         cross_correlation[~mask] = 0.0
         return correlation
 else:
