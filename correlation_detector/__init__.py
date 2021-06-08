@@ -126,7 +126,7 @@ if cupy:
         cupy.subtract(correlation, data_mean * cupy.sum(template), out=correlation)
         data_sqmean = cu_move_mean(data * data, template.size)
         norm = template.size * cupy.dot(template, template) * (data_sqmean - data_mean * data_mean)
-        mask = norm <= 0.0
+        mask = (norm < cupy.finfo(data.dtype).resolution) | (cupy.abs(correlation) < cupy.finfo(data.dtype).resolution)
         norm[mask] = 1.0
         norm = cupy.sqrt(norm, out=norm)
         correlation[mask] = 0.0
@@ -158,10 +158,10 @@ else:
         data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
         data_sqmean[-pad:] = 0.0
         norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
-        mask = norm > 0.0
-        np.sqrt(norm, where=mask, out=norm)
-        np.divide(correlation, norm, where=mask, out=correlation)
-        correlation[~mask] = 0.0
+        mask = (norm < np.finfo(data.dtype).resolution) | (np.abs(correlation) < np.finfo(data.dtype).resolution)
+        np.sqrt(norm, where=~mask, out=norm)
+        np.divide(correlation, norm, where=~mask, out=correlation)
+        correlation[mask] = 0.0
         return correlation
 
 
