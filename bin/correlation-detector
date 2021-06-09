@@ -7,7 +7,6 @@ from importlib import resources
 from pathlib import Path
 from time import perf_counter as timer
 
-import bottleneck as bn
 import numpy as np
 from fastavro import writer
 from fastavro.schema import load_schema
@@ -69,13 +68,13 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                stds = np.fromiter(pool.map(lambda trace: bn.nanstd(np.abs(trace.data)), correlations), dtype=float)
+                stds = np.fromiter(pool.map(lambda trace: np.std(np.abs(trace.data)), correlations), dtype=float)
                 cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_filter)
                 shifted_correlations = Stream(traces=pool.map(lambda trace: cd.max_filter(trace.data,
                                                                                           cli_args.tolerance),
                                                               correlations))
-                mean_correlation = bn.nanmean(shifted_correlations, axis=0)
-                dmad = bn.nanmedian(np.abs(mean_correlation - bn.nanmedian(mean_correlation)))
+                mean_correlation = np.mean(shifted_correlations, axis=0)
+                dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)

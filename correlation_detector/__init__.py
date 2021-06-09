@@ -13,8 +13,11 @@ from obspy import read, Stream, Trace, UTCDateTime
 
 try:
     import cupy
+
+    xp = cupy
 except ImportError:
     cupy = None
+    xp = np
 
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
@@ -60,10 +63,10 @@ def read_templates(templates_directory: Path,
 
 def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
                 mad_factor: float = 10.0) -> None:
-    deviations = np.abs(stds - bn.nanmedian(stds))
-    mad = bn.nanmedian(deviations)
-    std_mean = bn.nanmean(stds)
-    std_std = bn.nanstd(stds)
+    deviations = np.abs(stds - np.median(stds))
+    mad = np.median(deviations)
+    std_mean = np.mean(stds)
+    std_std = np.std(stds)
     threshold = mad_factor * mad + np.finfo(mad).eps
     tuples = zip(stds, deviations, correlations, data, template, list(travel_times.keys()))
     for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in tuples:
@@ -103,6 +106,9 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
               "sampling_rate": continuous.stats.sampling_rate}
     with stream:
         correlation = correlate_data(continuous.data, template.data)
+        if cupy:
+            # noinspection PyUnresolvedReferences
+            correlation = cupy.asnumpy(correlation, stream=stream)
     trace = Trace(data=correlation, header=header)
 
     duration = continuous.stats.endtime - continuous.stats.starttime
@@ -112,57 +118,34 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     return trace
 
 
-if cupy:
-    # noinspection PyUnresolvedReferences
-    def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
-        data = cupy.asarray(data)
-        template = cupy.asarray(template)
-        cupy.subtract(template, cupy.mean(template), out=template)
-        pad = template.size - 1
-        correlation = cupy.empty_like(data)
-        correlation[:-pad] = cupy.correlate(data, template, mode='valid')
-        correlation[-pad:] = 0.0
-        data_mean = cu_move_mean(data, template.size)
-        cupy.subtract(correlation, data_mean * cupy.sum(template), out=correlation)
-        data_sqmean = cu_move_mean(data * data, template.size)
-        norm = template.size * cupy.dot(template, template) * (data_sqmean - data_mean * data_mean)
-        mask = (norm < cupy.finfo(data.dtype).resolution) | (cupy.abs(correlation) < cupy.finfo(data.dtype).resolution)
-        norm[mask] = 1.0
-        norm = cupy.sqrt(norm, out=norm)
-        correlation[mask] = 0.0
-        cupy.divide(correlation, norm, out=correlation)
-        return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
+def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
+    data = xp.asarray(data)
+    template = xp.asarray(template)
+    xp.subtract(template, xp.mean(template), out=template)
+    pad = template.size - 1
+    correlation = xp.empty_like(data)
+    correlation[:-pad] = xp.correlate(data, template, mode='valid')
+    correlation[-pad:] = 0.0
+    data_mean = move_mean(data, template.size)
+    data_sqmean = move_mean(data * data, template.size)
+    norm = template.size * xp.dot(template, template) * (data_sqmean - data_mean * data_mean)
+    atol = xp.finfo(norm.dtype).eps
+    mask = (norm < atol) | (xp.abs(correlation) < atol)
+    norm[mask] = 1.0
+    norm = xp.sqrt(norm, out=norm)
+    correlation[mask] = 0.0
+    xp.divide(correlation, norm, out=correlation)
+    return correlation
 
 
-    # noinspection PyUnresolvedReferences
-    def cu_move_mean(data, window):
-        pad = window - 1
-        mean = cupy.empty_like(data)
-        csum = cupy.cumsum(data)
-        mean[0] = csum[pad] / window
-        mean[1:-pad] = (csum[window:] - csum[:-window]) / window
-        mean[-pad:] = 0.0
-        return mean
-else:
-    def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
-        template = template - bn.nanmean(template)
-        pad = template.size - 1
-        correlation = np.empty_like(data)
-        correlation[:-pad] = np.correlate(data, template, mode='valid')
-        correlation[-pad:] = 0.0
-        data_mean = np.empty_like(data)
-        data_mean[:-pad] = bn.move_mean(data, template.size)[pad:]
-        data_mean[-pad:] = 0.0
-        np.subtract(correlation, data_mean * bn.nansum(template), out=correlation)
-        data_sqmean = np.empty_like(data)
-        data_sqmean[:-pad] = bn.move_mean(data * data, template.size)[pad:]
-        data_sqmean[-pad:] = 0.0
-        norm = template.size * bn.ss(template) * (data_sqmean - data_mean * data_mean)
-        mask = (norm < np.finfo(data.dtype).resolution) | (np.abs(correlation) < np.finfo(data.dtype).resolution)
-        np.sqrt(norm, where=~mask, out=norm)
-        np.divide(correlation, norm, where=~mask, out=correlation)
-        correlation[mask] = 0.0
-        return correlation
+def move_mean(data, window):
+    pad = window - 1
+    mean = xp.empty_like(data)
+    csum = xp.cumsum(data)
+    mean[0] = csum[pad] / window
+    mean[1:-pad] = (csum[window:] - csum[:-window]) / window
+    mean[-pad:] = 0.0
+    return mean
 
 
 def max_filter(data, pixels):
@@ -174,7 +157,7 @@ def filter_peaks(peaks, shifted_correlations, factor, threshold):
     for peak in peaks:
         peak_correlations = np.fromiter((trace.data[peak] for trace in shifted_correlations), dtype=float)
         deviations = np.abs(peak_correlations - np.median(peak_correlations))
-        mad = bn.median(deviations)
+        mad = np.mean(deviations)
         valid_correlations = peak_correlations[deviations < factor * mad]
         if np.mean(valid_correlations) > threshold:
             yield peak
@@ -203,7 +186,7 @@ def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream,
 def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
     lower = max(peak - tolerance, 0)
     upper = min(peak + tolerance + 1, len(trace.data))
-    shift = bn.nanargmax(trace.data[lower:upper]) - tolerance
+    shift = np.argmax(trace.data[lower:upper]) - tolerance
     height = trace.data[peak]
     correlation = trace.data[peak + shift]
     return height, correlation, shift
@@ -215,8 +198,8 @@ def relative_magnitude(data_trace: Trace, template_trace: Trace, delta: float) -
     endtime = starttime + duration
     data_trace_view = data_trace.slice(starttime=starttime, endtime=endtime)
     if data_trace_view:
-        data_amp = bn.nanmax(np.abs(data_trace_view.data))
-        template_amp = bn.nanmax(np.abs(template_trace.data))
+        data_amp = np.max(np.abs(data_trace_view.data))
+        template_amp = np.max(np.abs(template_trace.data))
         if (ratio := data_amp / template_amp) > 0:
             return log10(ratio)
         else:
@@ -225,12 +208,12 @@ def relative_magnitude(data_trace: Trace, template_trace: Trace, delta: float) -
         return nan
 
 
-def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: float) -> float:
+def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: float):
     magnitudes = template_magnitude + np.fromiter(relative_magnitudes, dtype=float)
-    deviations = np.abs(magnitudes - bn.nanmedian(magnitudes))
-    mad = bn.nanmedian(deviations)
+    deviations = np.abs(magnitudes - np.nanmedian(magnitudes))
+    mad = np.nanmedian(deviations)
     threshold = mad_factor * mad + np.finfo(mad).eps
-    return bn.nanmean(magnitudes[deviations < threshold])
+    return np.mean(magnitudes[deviations < threshold])
 
 
 def preprocess(detections, catalog, threshold: float, min_channels: int, mag_relative_threshold: float):
