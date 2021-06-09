@@ -28,7 +28,7 @@ parser.add_argument("travel_times", help="Path to travel times directory", type=
 parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
-parser.add_argument("--std_filter", help="Scale factor of correlation std MAD threshold", type=float, default=8.0)
+parser.add_argument("--std_filter", help="Scale factor of correlation std MAD threshold", type=float, default=2.0)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.6)
