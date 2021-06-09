@@ -106,9 +106,6 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
               "sampling_rate": continuous.stats.sampling_rate}
     with stream:
         correlation = correlate_data(continuous.data, template.data)
-        if cupy:
-            # noinspection PyUnresolvedReferences
-            correlation = cupy.asnumpy(correlation, stream=stream)
     trace = Trace(data=correlation, header=header)
 
     duration = continuous.stats.endtime - continuous.stats.starttime
@@ -135,7 +132,11 @@ def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     norm = xp.sqrt(norm, out=norm)
     correlation[mask] = 0.0
     xp.divide(correlation, norm, out=correlation)
-    return correlation
+    if xp == cupy:
+        # noinspection PyUnresolvedReferences
+        return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
+    else:
+        return correlation
 
 
 def move_mean(data, window):
