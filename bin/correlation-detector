@@ -29,7 +29,6 @@ parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
 parser.add_argument("--std_filter", help="Scale factor of correlation std MAD threshold", type=float, default=8.0)
-parser.add_argument("--events_filter", help="Scale factor of events MAD threshold", type=float, default=8.0)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.6)
@@ -79,7 +78,6 @@ if __name__ == '__main__':
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
                 logging.debug(f"Found {peaks.size} peaks")
-                peaks = cd.filter_peaks(peaks, shifted_correlations, cli_args.events_filter, cli_args.threshold)
                 detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance)
                 events_buffer.append({'template': index, 'dmad': dmad, 'detections': list(detections)})
             except BaseException as error:
