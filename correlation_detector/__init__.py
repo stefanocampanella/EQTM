@@ -2,7 +2,7 @@ import logging
 import re
 from collections import OrderedDict
 from contextlib import nullcontext
-from math import log10, nan
+from math import log10, nan, inf
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
@@ -23,7 +23,7 @@ except ImportError:
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
     logging.info(f"Reading continuous data from {path}")
     with path.open('rb') as file:
-        data = read(file, dtype=np.float32)
+        data = read(file, dtype=np.float64)
     data.merge(fill_value=0)
     data.filter("bandpass", freqmin=freqmin, freqmax=freqmax, zerophase=True)
     starttime = min(trace.stats.starttime for trace in data)
@@ -54,7 +54,7 @@ def read_templates(templates_directory: Path,
                 template_path = templates_directory / f"{template_number}.mseed"
                 logging.debug(f"Reading {template_path}")
                 with template_path.open('rb') as template_file:
-                    template_stream = read(template_file, dtype=np.float32)
+                    template_stream = read(template_file, dtype=np.float64)
                 template_stream.merge(fill_value=0)
                 yield template_number, template_stream, travel_times
             except OSError as err:
@@ -118,10 +118,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
 def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     data = xp.asarray(data)
     template = xp.asarray(template)
-    if template.dtype == xp.float64:
-        xp.subtract(template, xp.mean(template), out=template)
-    else:
-        template = template - xp.mean(template)
+    xp.subtract(template, xp.mean(template), out=template)
     pad = template.size - 1
     correlation = xp.empty_like(data)
     correlation[:-pad] = xp.correlate(data, template, mode='valid')
@@ -132,15 +129,9 @@ def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     atol = xp.finfo(norm.dtype).eps
     mask = (norm <= atol) | (xp.abs(correlation) <= atol)
     norm[mask] = 1.0
-    if norm.dtype == xp.float64:
-        xp.sqrt(norm, out=norm)
-    else:
-        norm = xp.sqrt(norm)
+    xp.sqrt(norm, out=norm)
     correlation[mask] = 0.0
-    if correlation.dtype == xp.float64:
-        xp.divide(correlation, norm, out=correlation)
-    else:
-        correlation = correlation / norm
+    xp.divide(correlation, norm, out=correlation)
     if xp == cupy:
         # noinspection PyUnresolvedReferences
         return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
@@ -237,10 +228,12 @@ def preprocess(detections, catalog, threshold: float, min_channels: int, mag_rel
             template_magnitude = catalog.iloc[detection['template'] - 1]
             magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
                                            mag_relative_threshold)
+            dmad = detection['dmad']
             detection.update({'datetime': timestamp, 'height': height, 'correlation': correlation,
                               'magnitude': magnitude, 'template_magnitude': template_magnitude,
                               'channels': channels, 'num_channels': num_channels,
-                              'crt_pre': height / detection['dmad'], 'crt_post': correlation / detection['dmad']})
+                              'crt_pre': inf if dmad == 0.0 else height / dmad,
+                              'crt_post': inf if dmad == 0.0 else correlation / dmad})
             for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
                 detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
             yield detection
