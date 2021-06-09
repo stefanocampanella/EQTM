@@ -118,7 +118,10 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
 def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     data = xp.asarray(data)
     template = xp.asarray(template)
-    xp.subtract(template, xp.mean(template), out=template)
+    if template.dtype == xp.float64:
+        xp.subtract(template, xp.mean(template), out=template)
+    else:
+        template = template - xp.mean(template)
     pad = template.size - 1
     correlation = xp.empty_like(data)
     correlation[:-pad] = xp.correlate(data, template, mode='valid')
@@ -127,11 +130,17 @@ def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     data_sqmean = move_mean(data * data, template.size)
     norm = template.size * xp.dot(template, template) * (data_sqmean - data_mean * data_mean)
     atol = xp.finfo(norm.dtype).eps
-    mask = (norm < atol) | (xp.abs(correlation) < atol)
+    mask = (norm <= atol) | (xp.abs(correlation) <= atol)
     norm[mask] = 1.0
-    norm = xp.sqrt(norm, out=norm)
+    if norm.dtype == xp.float64:
+        xp.sqrt(norm, out=norm)
+    else:
+        norm = xp.sqrt(norm)
     correlation[mask] = 0.0
-    xp.divide(correlation, norm, out=correlation)
+    if correlation.dtype == xp.float64:
+        xp.divide(correlation, norm, out=correlation)
+    else:
+        correlation = correlation / norm
     if xp == cupy:
         # noinspection PyUnresolvedReferences
         return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
