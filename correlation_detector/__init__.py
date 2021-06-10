@@ -115,25 +115,24 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray, rtol=1.0) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     data = xp.asarray(data)
     template = xp.asarray(template)
-    xp.subtract(template, xp.mean(template), out=template)
+    template -= xp.mean(template)
     pad = template.size - 1
     correlation = xp.empty_like(data)
     correlation[:-pad] = xp.correlate(data, template, mode='valid')
     correlation[-pad:] = 0.0
-    norm = move_mean(data * data, template.size)
-    data_mean_sq = move_mean(data, template.size)
-    xp.multiply(data_mean_sq, data_mean_sq, out=data_mean_sq)
-    xp.subtract(norm, data_mean_sq, out=norm)
-    tol = rtol * xp.finfo(norm.dtype).eps
-    mask = (norm <= tol) | (xp.abs(correlation) <= tol)
-    xp.multiply(norm, template.size * xp.dot(template, template), out=norm)
+    norm = moving_mean(data * data, template.size)
+    mean_squared = moving_mean(data, template.size)
+    mean_squared *= mean_squared
+    norm -= mean_squared
+    mask = norm <= 0.0
+    norm *= template.size * xp.dot(template, template)
     norm[mask] = 1.0
     xp.sqrt(norm, out=norm)
     correlation[mask] = 0.0
-    xp.divide(correlation, norm, out=correlation)
+    correlation /= norm
     if xp == cupy:
         # noinspection PyUnresolvedReferences
         return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
@@ -141,7 +140,7 @@ def correlate_data(data: np.ndarray, template: np.ndarray, rtol=1.0) -> np.ndarr
         return correlation
 
 
-def move_mean(data, window):
+def moving_mean(data, window):
     pad = window - 1
     mean = xp.empty_like(data)
     csum = xp.cumsum(data)
