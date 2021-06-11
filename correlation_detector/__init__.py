@@ -6,16 +6,20 @@ from math import log10, nan, inf
 from pathlib import Path
 from typing import Tuple, Dict, Generator, Iterator
 
-import bottleneck as bn
 import numpy as np
 import pandas as pd
 from obspy import read, Stream, Trace, UTCDateTime
 
 try:
     import cupy
+    from cupyx.scipy.signal import find_peaks
+    from cupyx.scipy.ndimage import maximum_filter1d
 
     xp = cupy
 except ImportError:
+    from scipy.signal import find_peaks
+    from scipy.ndimage import maximum_filter1d
+
     cupy = None
     xp = np
 
@@ -150,11 +154,6 @@ def moving_mean(data, window):
     return mean
 
 
-def max_filter(data, pixels):
-    data = np.hstack([np.full(pixels, -1.0), data, np.full(pixels, -1.0)])
-    return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
-
-
 def filter_peaks(peaks, shifted_correlations, factor, threshold):
     for peak in peaks:
         peak_correlations = np.fromiter((trace.data[peak] for trace in shifted_correlations), dtype=float)
@@ -163,6 +162,21 @@ def filter_peaks(peaks, shifted_correlations, factor, threshold):
         valid_correlations = peak_correlations[deviations < factor * mad]
         if np.mean(valid_correlations) > threshold:
             yield peak
+
+
+def detector(correlations, height, distance, tolerance, factor):
+    correlations = xp.asarray(correlations)
+    correlations = maximum_filter1d(correlations, tolerance, mode='nearest', axis=1)
+    deviations = xp.abs(correlations - xp.median(correlations, axis=0))
+    threshold = factor * xp.median(deviations, axis=0) + xp.finfo(deviations.dtype).eps
+    weights = xp.asarray(deviations < threshold).astype(deviations.dtype)
+    mean = xp.average(correlations, weights=weights, axis=0)
+    peaks, _ = find_peaks(mean, height=height, distance=distance)
+    if xp == cupy:
+        # noinspection PyUnresolvedReferences
+        return cupy.asnumpy(peaks, stream=cupy.cuda.get_current_stream())
+    else:
+        return peaks
 
 
 def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
