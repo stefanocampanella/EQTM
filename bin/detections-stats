@@ -9,7 +9,7 @@ from fastavro import reader
 from fastavro.schema import load_schema
 from tqdm import tqdm
 
-from correlation_detector import preprocess, read_zmap, format_stats, format_cat
+from correlation_detector import postprocess_detections, read_zmap, format_stats, format_cat
 
 parser = argparse.ArgumentParser(prog="stats")
 parser.add_argument("catalog", help="Path to event catalog", type=Path)
@@ -42,9 +42,9 @@ if __name__ == '__main__':
         detections = reader(avro, reader_schema=schema)
         if cli_args.sort:
             detections = sorted(detections, key=lambda detection: (detection['template'], detection['timestamp']))
-        detections = preprocess(detections, template_magnitudes, threshold=cli_args.threshold,
-                                min_channels=cli_args.min_channels,
-                                mag_relative_threshold=cli_args.mag_relative_threshold)
+        detections = postprocess_detections(detections, template_magnitudes, threshold=cli_args.threshold,
+                                            min_channels=cli_args.min_channels,
+                                            mag_relative_threshold=cli_args.mag_relative_threshold)
         with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
             logging.info(f"Writing to {stats.name} and {cat.name}")
             for event in tqdm(detections, disable=not cli_args.progress):

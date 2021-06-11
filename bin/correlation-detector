@@ -28,7 +28,6 @@ parser.add_argument("travel_times", help="Path to travel times directory", type=
 parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path")
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
-parser.add_argument("--std_filter", help="Scale factor of correlation std MAD threshold", type=float, default=2.0)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.4)
@@ -67,9 +66,6 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                stds = np.fromiter(pool.map(lambda trace: np.std(np.abs(trace.data)), correlations), dtype=float)
-                if cli_args.std_filter > 0:
-                    cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_filter)
                 shifted_correlations = Stream(traces=pool.map(lambda trace: cd.max_filter(trace.data,
                                                                                           cli_args.tolerance),
                                                               correlations))
