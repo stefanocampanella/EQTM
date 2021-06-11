@@ -12,6 +12,7 @@ from fastavro import writer
 from fastavro.schema import load_schema
 from obspy import Stream
 from psutil import cpu_count
+from scipy.signal import find_peaks
 from tqdm import tqdm
 
 try:
@@ -66,11 +67,17 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                mean_correlation = np.mean(correlations, axis=0)
+                stds = np.fromiter(pool.map(lambda trace: np.std(np.abs(trace.data)), correlations), dtype=float)
+                if cli_args.std_filter > 0:
+                    cd.filter_data(stds, correlations, data, template, ttimes, mad_factor=cli_args.std_filter)
+                shifted_correlations = Stream(traces=pool.map(lambda trace: cd.max_filter(trace.data,
+                                                                                          cli_args.tolerance),
+                                                              correlations))
+                mean_correlation = np.mean(shifted_correlations, axis=0)
                 dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
                 template_length = max(trace.stats.npts for trace in template)
-                peaks = cd.detector(correlations, cli_args.threshold, cli_args.distance * template_length,
-                                    cli_args.tolerance, 2.0)
+                peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
+                                      distance=cli_args.distance * template_length)
                 logging.debug(f"Found {peaks.size} peaks")
                 detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance)
                 events_buffer.append({'template': index, 'dmad': dmad, 'detections': list(detections)})
