@@ -108,9 +108,8 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
         correlation = correlate_data(continuous.data, template.data)
     trace = Trace(data=correlation, header=header)
 
-    duration = continuous.stats.endtime - continuous.stats.starttime
-    starttime = trace.stats.starttime + delay
-    endtime = starttime + duration
+    starttime = continuous.stats.starttime + delay
+    endtime = continuous.stats.endtime + delay
     trace.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
     return trace
 
@@ -155,24 +154,19 @@ def max_filter(data, pixels):
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
 
 
-def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream,
-                       travel_times: Dict[str, float], tolerance: int) -> Generator[Dict, None, None]:
-    correlations_starttime = min(trace.stats.starttime for trace in correlations)
-    correlation_delta = sum(trace.stats.delta for trace in correlations) / len(correlations)
-    travel_starttime = min(travel_times.values())
-    template_starttime = min(trace.stats.starttime for trace in template)
-
+def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream, tolerance: int,
+                       data_origin: UTCDateTime, delta: float, template_origin: UTCDateTime,
+                       event_shift: float) -> Generator[Dict, None, None]:
     for peak in peaks:
-        trigger_time = correlations_starttime + peak * correlation_delta
-        event_date = trigger_time + travel_starttime
-        delay = trigger_time - template_starttime
+        event_date = data_origin + peak * delta
+        template_shift = event_date - template_origin
         channels = []
         for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
-            magnitude = relative_magnitude(data_trace, template_trace, delay)
+            magnitude = relative_magnitude(data_trace, template_trace, template_shift)
             height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
             channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})
-        yield {'timestamp': event_date.timestamp, 'channels': channels}
+        yield {'timestamp': (event_date + event_shift).timestamp, 'channels': channels}
 
 
 def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
@@ -185,9 +179,8 @@ def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, flo
 
 
 def relative_magnitude(data_trace: Trace, template_trace: Trace, delay: float) -> float:
-    duration = template_trace.stats.endtime - template_trace.stats.starttime
     starttime = template_trace.stats.starttime + delay
-    endtime = starttime + duration
+    endtime = template_trace.stats.endtime + delay
     data_trace_view = data_trace.slice(starttime=starttime, endtime=endtime)
     if data_trace_view:
         data_amp = np.max(np.abs(data_trace_view.data))

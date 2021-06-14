@@ -10,7 +10,7 @@ from time import perf_counter as timer
 import numpy as np
 from fastavro import writer
 from fastavro.schema import load_schema
-from obspy import Stream
+from obspy import Stream, UTCDateTime
 from psutil import cpu_count
 from scipy.signal import find_peaks
 from tqdm import tqdm
@@ -70,13 +70,30 @@ if __name__ == '__main__':
                                                                                           cli_args.tolerance),
                                                               correlations))
                 mean_correlation = np.mean(shifted_correlations, axis=0)
-                dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
                 logging.debug(f"Found {peaks.size} peaks")
-                detections = cd.process_detections(peaks, correlations, data, template, ttimes, cli_args.tolerance)
-                events_buffer.append({'template': index, 'dmad': dmad, 'detections': list(detections)})
+                data_starttime = UTCDateTime(np.mean([trace.stats.starttime.timestamp for trace in data]))
+                template_reference = UTCDateTime(np.mean([trace.stats.starttime.timestamp - ttime
+                                                          for trace, ttime in zip(template, ttimes.values())]))
+                correlation_delta = np.mean([trace.stats.delta for trace in correlations])
+                event_shift = 2 * min(ttimes.values())  # mystery of faith
+                detections = []
+                for peak in peaks:
+                    event_date = data_starttime + peak * correlation_delta
+                    template_shift = event_date - template_reference
+                    channels = []
+                    for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
+                        magnitude = cd.relative_magnitude(data_trace, template_trace, template_shift)
+                        height, correlation, shift = cd.fix_correlation(correlation_trace, peak, cli_args.tolerance)
+                        channels.append(
+                            {'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
+                             'magnitude': magnitude})
+                    detections.append({'timestamp': (event_date + event_shift).timestamp, 'channels': channels})
+                if detections:
+                    dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
+                    events_buffer.append({'template': index, 'dmad': dmad, 'detections': detections})
             except BaseException as error:
                 if cli_args.stop:
                     raise error
