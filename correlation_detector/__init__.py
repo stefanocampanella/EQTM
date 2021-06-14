@@ -165,10 +165,10 @@ def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream,
     for peak in peaks:
         trigger_time = correlations_starttime + peak * correlation_delta
         event_date = trigger_time + travel_starttime
-        delta = trigger_time - template_starttime
+        delay = trigger_time - template_starttime
         channels = []
         for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
-            magnitude = relative_magnitude(data_trace, template_trace, delta)
+            magnitude = relative_magnitude(data_trace, template_trace, delay)
             height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
             channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})
@@ -184,9 +184,9 @@ def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, flo
     return height, correlation, shift
 
 
-def relative_magnitude(data_trace: Trace, template_trace: Trace, delta: float) -> float:
+def relative_magnitude(data_trace: Trace, template_trace: Trace, delay: float) -> float:
     duration = template_trace.stats.endtime - template_trace.stats.starttime
-    starttime = template_trace.stats.starttime + delta
+    starttime = template_trace.stats.starttime + delay
     endtime = starttime + duration
     data_trace_view = data_trace.slice(starttime=starttime, endtime=endtime)
     if data_trace_view:
