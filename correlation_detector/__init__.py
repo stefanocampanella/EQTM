@@ -111,7 +111,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     duration = continuous.stats.endtime - continuous.stats.starttime
     starttime = trace.stats.starttime + delay
     endtime = starttime + duration
-    trace.trim(starttime=starttime, endtime=endtime, nearest_sample=True, pad=True, fill_value=0)
+    trace.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
     return trace
 
 
