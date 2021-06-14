@@ -73,15 +73,14 @@ if __name__ == '__main__':
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
-                logging.debug(f"Found {peaks.size} peaks")
                 data_starttime = UTCDateTime(np.mean([trace.stats.starttime.timestamp for trace in data]))
                 template_reference = UTCDateTime(np.mean([trace.stats.starttime.timestamp - ttime
                                                           for trace, ttime in zip(template, ttimes.values())]))
-                correlation_delta = np.mean([trace.stats.delta for trace in correlations])
+                delta = np.mean([trace.stats.delta for trace in correlations])
                 event_shift = 2 * min(ttimes.values())  # mystery of faith
                 detections = []
                 for peak in peaks:
-                    event_date = data_starttime + peak * correlation_delta
+                    event_date = data_starttime + peak * delta
                     template_shift = event_date - template_reference
                     channels = []
                     for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
@@ -92,6 +91,7 @@ if __name__ == '__main__':
                              'magnitude': magnitude})
                     detections.append({'timestamp': (event_date + event_shift).timestamp, 'channels': channels})
                 if detections:
+                    logging.debug(f"Found {len(detections)} {'events' if len(detections) > 1 else 'event'}")
                     dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
                     events_buffer.append({'template': index, 'dmad': dmad, 'detections': detections})
             except BaseException as error:
