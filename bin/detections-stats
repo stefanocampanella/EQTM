@@ -61,7 +61,7 @@ if __name__ == '__main__':
                     detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
                 events_buffer.append(detection)
         if cli_args.sort:
-            events_buffer.sort(key=lambda detection: (detection['template'], detection['timestamp']))
+            events_buffer.sort(key=lambda event: (event['template'], event['timestamp']))
     with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
         logging.info(f"Writing to {stats.name} and {cat.name}")
         for event in tqdm(events_buffer, disable=not cli_args.progress):

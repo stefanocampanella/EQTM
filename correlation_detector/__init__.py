@@ -2,14 +2,14 @@ import logging
 import re
 from collections import OrderedDict
 from contextlib import nullcontext
-from math import log10, nan, inf
+from math import log10, nan
 from pathlib import Path
-from typing import Tuple, Dict, Generator, Iterator
+from typing import Tuple, Dict, Generator
 
 import bottleneck as bn
 import numpy as np
 import pandas as pd
-from obspy import read, Stream, Trace, UTCDateTime
+from obspy import read, Stream, Trace
 
 try:
     import cupy
