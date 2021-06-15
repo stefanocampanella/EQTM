@@ -61,24 +61,6 @@ def read_templates(templates_directory: Path,
                 logging.warning(f"{err} occurred while reading template {template_number}")
 
 
-def filter_data(stds: np.ndarray, correlations: Stream, data: Stream, template: Stream, travel_times: Dict[str, float],
-                mad_factor: float = 10.0) -> None:
-    deviations = np.abs(stds - np.median(stds))
-    mad = np.median(deviations)
-    std_mean = np.mean(stds)
-    std_std = np.std(stds)
-    threshold = mad_factor * mad + np.finfo(mad).eps
-    tuples = zip(stds, deviations, correlations, data, template, list(travel_times.keys()))
-    for std, dev, xcor_trace, cont_trace, temp_trace, ttimes_id in tuples:
-        if dev > threshold:
-            logging.debug(f"Skipping {xcor_trace} "
-                          f"(correlation std: {std}, stream average: {std_mean} ± {3 * std_std})")
-            correlations.remove(xcor_trace)
-            data.remove(cont_trace)
-            template.remove(temp_trace)
-            del travel_times[ttimes_id]
-
-
 def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],
                  max_channels: int) -> Tuple[Stream, Stream, Dict[str, float]]:
     trace_ids = sorted(set.intersection({trace.id for trace in data},
@@ -154,21 +136,6 @@ def max_filter(data, pixels):
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
 
 
-def process_detections(peaks: Iterator[int], correlations: Stream, data: Stream, template: Stream, tolerance: int,
-                       data_origin: UTCDateTime, delta: float, template_origin: UTCDateTime,
-                       event_shift: float) -> Generator[Dict, None, None]:
-    for peak in peaks:
-        event_date = data_origin + peak * delta
-        template_shift = event_date - template_origin
-        channels = []
-        for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
-            magnitude = relative_magnitude(data_trace, template_trace, template_shift)
-            height, correlation, shift = fix_correlation(correlation_trace, peak, tolerance)
-            channels.append({'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
-                             'magnitude': magnitude})
-        yield {'timestamp': (event_date + event_shift).timestamp, 'channels': channels}
-
-
 def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
     lower = max(peak - tolerance, 0)
     upper = min(peak + tolerance + 1, len(trace.data))
@@ -199,28 +166,6 @@ def estimate_magnitude(template_magnitude, relative_magnitudes, mad_factor: floa
     mad = np.nanmedian(deviations)
     threshold = mad_factor * mad + np.finfo(mad).eps
     return np.mean(magnitudes[deviations < threshold])
-
-
-def postprocess_detections(detections, catalog, threshold: float, min_channels: int, mag_relative_threshold: float):
-    for detection in detections:
-        channels = detection['channels']
-        num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
-        if num_channels >= min_channels:
-            timestamp = UTCDateTime(detection['timestamp'])
-            height = sum(channel['height'] for channel in channels) / len(channels)
-            correlation = sum(channel['correlation'] for channel in channels) / len(channels)
-            template_magnitude = catalog.iloc[detection['template'] - 1]
-            magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
-                                           mag_relative_threshold)
-            dmad = detection['dmad']
-            detection.update({'datetime': timestamp, 'height': height, 'correlation': correlation,
-                              'magnitude': magnitude, 'template_magnitude': template_magnitude,
-                              'channels': channels, 'num_channels': num_channels,
-                              'crt_pre': inf if dmad == 0.0 else height / dmad,
-                              'crt_post': inf if dmad == 0.0 else correlation / dmad})
-            for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
-                detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
-            yield detection
 
 
 def flatten(events_buffer):

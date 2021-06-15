@@ -2,14 +2,16 @@
 import argparse
 import logging
 from importlib import resources
+from math import inf
 from pathlib import Path
 from time import perf_counter as timer
 
 from fastavro import reader
 from fastavro.schema import load_schema
+from obspy import UTCDateTime
 from tqdm import tqdm
 
-from correlation_detector import postprocess_detections, read_zmap, format_stats, format_cat
+import correlation_detector as cd
 
 parser = argparse.ArgumentParser(prog="stats")
 parser.add_argument("catalog", help="Path to event catalog", type=Path)
@@ -34,21 +36,36 @@ with resources.path('correlation_detector', 'event.avsc') as schema_path:
 
 if __name__ == '__main__':
     tic = timer()
-
-    template_magnitudes = read_zmap(cli_args.catalog)
-
+    template_magnitudes = cd.read_zmap(cli_args.catalog)
     logging.info(f"Reading from {cli_args.input}")
     with open(cli_args.input, 'rb') as avro:
         detections = reader(avro, reader_schema=schema)
+        events_buffer = []
+        for detection in detections:
+            channels = detection['channels']
+            num_channels = sum(1 for channel in channels if channel['correlation'] > cli_args.threshold)
+            if num_channels >= cli_args.min_channels:
+                timestamp = UTCDateTime(detection['timestamp'])
+                height = sum(channel['height'] for channel in channels) / len(channels)
+                correlation = sum(channel['correlation'] for channel in channels) / len(channels)
+                template_magnitude = template_magnitudes.iloc[detection['template'] - 1]
+                magnitude = cd.estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
+                                                  cli_args.mag_relative_threshold)
+                dmad = detection['dmad']
+                detection.update({'datetime': timestamp, 'height': height, 'correlation': correlation,
+                                  'magnitude': magnitude, 'template_magnitude': template_magnitude,
+                                  'channels': channels, 'num_channels': num_channels,
+                                  'crt_pre': inf if dmad == 0.0 else height / dmad,
+                                  'crt_post': inf if dmad == 0.0 else correlation / dmad})
+                for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
+                    detection[name] = sum(1 for channel in channels if channel['correlation'] > ref)
+                events_buffer.append(detection)
         if cli_args.sort:
-            detections = sorted(detections, key=lambda detection: (detection['template'], detection['timestamp']))
-        detections = postprocess_detections(detections, template_magnitudes, threshold=cli_args.threshold,
-                                            min_channels=cli_args.min_channels,
-                                            mag_relative_threshold=cli_args.mag_relative_threshold)
-        with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
-            logging.info(f"Writing to {stats.name} and {cat.name}")
-            for event in tqdm(detections, disable=not cli_args.progress):
-                stats.write(format_stats(event))
-                cat.write(format_cat(event))
+            events_buffer.sort(key=lambda detection: (detection['template'], detection['timestamp']))
+    with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
+        logging.info(f"Writing to {stats.name} and {cat.name}")
+        for event in tqdm(events_buffer, disable=not cli_args.progress):
+            stats.write(cd.format_stats(event))
+            cat.write(cd.format_cat(event))
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
