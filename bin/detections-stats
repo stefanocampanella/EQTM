@@ -39,9 +39,9 @@ if __name__ == '__main__':
     template_magnitudes = cd.read_zmap(cli_args.catalog)
     logging.info(f"Reading from {cli_args.input}")
     with open(cli_args.input, 'rb') as avro:
-        detections = reader(avro, reader_schema=schema)
         events_buffer = []
-        for detection in detections:
+        detections = reader(avro, reader_schema=schema)
+        for detection in tqdm(detections, disable=not cli_args.progress):
             channels = detection['channels']
             num_channels = sum(1 for channel in channels if channel['correlation'] > cli_args.threshold)
             if num_channels >= cli_args.min_channels:
@@ -62,10 +62,11 @@ if __name__ == '__main__':
                 events_buffer.append(detection)
         if cli_args.sort:
             events_buffer.sort(key=lambda event: (event['template'], event['timestamp']))
-    with open(cli_args.output + '.stats', 'w') as stats, open(cli_args.output + '.cat', 'w') as cat:
-        logging.info(f"Writing to {stats.name} and {cat.name}")
-        for event in tqdm(events_buffer, disable=not cli_args.progress):
-            stats.write(cd.format_stats(event))
-            cat.write(cd.format_cat(event))
+    logging.info(f"Writing {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'} "
+                 f"to {cli_args.output}.cat and {cli_args.output}.stats")
+    with open(cli_args.output + '.cat', 'w') as file:
+        file.writelines(cd.format_cat(event) for event in events_buffer)
+    with open(cli_args.output + '.stats', 'w') as file:
+        file.writelines(cd.format_stats(event) for event in events_buffer)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
