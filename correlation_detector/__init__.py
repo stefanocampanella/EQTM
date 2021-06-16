@@ -67,10 +67,14 @@ def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],
                                         {trace.id for trace in template},
                                         set(travel_times)),
                        key=lambda trace_id: (travel_times[trace_id], trace_id[-1]))[:max_channels]
+    if not trace_ids:
+        raise RuntimeError("No matches between data, template and travel times.")
     logging.debug(f"Traces used: {', '.join(trace_ids)}")
     data = Stream(traces=[find_trace(data, trace_id) for trace_id in trace_ids])
     template = Stream(traces=[find_trace(template, trace_id) for trace_id in trace_ids])
     travel_times = OrderedDict([(trace_id, travel_times[trace_id]) for trace_id in trace_ids])
+    if any(data_trace.stats.delta != template_trace.stats.delta for data_trace, template_trace in zip(data, template)):
+        raise RuntimeError("Data and template must have the same delta.")
     return data, template, travel_times
 
 

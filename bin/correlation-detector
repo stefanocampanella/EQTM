@@ -66,18 +66,16 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                shifted_correlations = Stream(traces=pool.map(lambda trace: cd.max_filter(trace.data,
-                                                                                          cli_args.tolerance),
-                                                              correlations))
-                mean_correlation = np.mean(shifted_correlations, axis=0)
+                signal = sum(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.tolerance), correlations))
+                signal = signal / len(correlations)
                 template_length = max(trace.stats.npts for trace in template)
-                peaks, _ = find_peaks(mean_correlation, height=cli_args.threshold,
+                peaks, _ = find_peaks(signal, height=cli_args.threshold,
                                       distance=cli_args.distance * template_length)
                 data_starttime = UTCDateTime(np.mean([trace.stats.starttime.timestamp for trace in data]))
                 template_reference = UTCDateTime(np.mean([trace.stats.starttime.timestamp - ttime
                                                           for trace, ttime in zip(template, ttimes.values())]))
                 delta = np.mean([trace.stats.delta for trace in correlations])
-                event_shift = 2 * min(ttimes.values())  # mystery of faith
+                event_shift = 2 * min(ttimes.values()) + 0.5 * delta  # mystery of faith
                 detections = []
                 for peak in peaks:
                     event_date = data_starttime + peak * delta
@@ -92,6 +90,7 @@ if __name__ == '__main__':
                     detections.append({'timestamp': (event_date + event_shift).timestamp, 'channels': channels})
                 if detections:
                     logging.debug(f"Found {len(detections)} {'events' if len(detections) > 1 else 'event'}")
+                    mean_correlation = sum(trace.data for trace in correlations) / len(correlations)
                     dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
                     events_buffer.append({'template': index, 'dmad': dmad, 'detections': detections})
             except BaseException as error:
