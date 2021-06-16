@@ -144,22 +144,22 @@ def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, flo
     lower = max(peak - tolerance, 0)
     upper = min(peak + tolerance + 1, len(trace.data))
     shift = np.argmax(trace.data[lower:upper]) - tolerance
-    height = trace.data[peak]
-    correlation = trace.data[peak + shift]
-    return height, correlation, shift
+    return trace.data[peak], trace.data[peak + shift], shift
 
 
 def relative_magnitude(data_trace: Trace, template_trace: Trace, delay: float) -> float:
     starttime = template_trace.stats.starttime + delay
     endtime = template_trace.stats.endtime + delay
     data_trace_view = data_trace.slice(starttime=starttime, endtime=endtime)
-    if data_trace_view:
+    if data_trace_view and template_trace:
         data_amp = np.max(np.abs(data_trace_view.data))
         template_amp = np.max(np.abs(template_trace.data))
-        if (ratio := data_amp / template_amp) > 0:
-            return log10(ratio)
-        else:
+        if template_amp == 0.0:
             return nan
+        elif (ratio := data_amp / template_amp) <= 0.0:
+            return nan
+        else:
+            return log10(ratio)
     else:
         return nan
 
