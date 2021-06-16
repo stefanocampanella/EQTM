@@ -57,8 +57,8 @@ def read_templates(templates_directory: Path,
                     template_stream = read(template_file, dtype=np.float64)
                 template_stream.merge(fill_value=0)
                 yield template_number, template_stream, travel_times
-            except OSError as err:
-                logging.warning(f"{err} occurred while reading template {template_number}")
+            except OSError as exception:
+                logging.warning(f"OSError occurred while reading template {template_number}", exc_info=exception)
 
 
 def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],

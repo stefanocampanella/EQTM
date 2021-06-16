@@ -93,14 +93,14 @@ if __name__ == '__main__':
                     mean_correlation = sum(trace.data for trace in correlations) / len(correlations)
                     dmad = np.median(np.abs(mean_correlation - np.median(mean_correlation)))
                     events_buffer.append({'template': index, 'dmad': dmad, 'detections': detections})
-            except BaseException as error:
+            except BaseException as exception:
                 if cli_args.stop:
-                    raise error
+                    raise exception
                 else:
-                    logging.error(f"{error} occurred while processing template {index}")
+                    logging.warning(f"An error occurred while processing template {index}", exc_info=exception)
     output = Path(cli_args.output + '.avro')
     if output.exists():
-        logging.warning(f"{output} already exists, it will be overwritten.")
+        logging.info(f"{output} already exists, it will be overwritten.")
     with open(output, 'wb') as file:
         logging.info(f"Writing to {file.name}")
         writer(file, schema, cd.flatten(events_buffer), codec=cli_args.compression)
