@@ -68,14 +68,10 @@ if __name__ == '__main__':
             try:
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                max_correlations = list(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.tolerance),
-                                                 correlations))
-                count = sum(pool.map(lambda correlation: correlation > cli_args.threshold, max_correlations))
-                mask = count < cli_args.min_channels
-                signal = sum(max_correlations) / len(correlations)
-                signal[mask] = 0.0
+                signal = sum(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.tolerance), correlations))
+                signal /= len(correlations)
                 template_length = max(trace.stats.npts for trace in template)
-                peaks, _ = find_peaks(signal, distance=cli_args.distance * template_length)
+                peaks, _ = find_peaks(signal, height=cli_args.threshold, distance=cli_args.distance * template_length)
                 data_starttime = UTCDateTime(np.mean([trace.stats.starttime.timestamp for trace in data]))
                 template_reference = UTCDateTime(np.mean([trace.stats.starttime.timestamp - ttime
                                                           for trace, ttime in zip(template, ttimes.values())]))

@@ -136,7 +136,7 @@ def moving_mean(data, window):
 
 
 def max_filter(data, pixels):
-    data = np.hstack([np.full(pixels, -1.0), data, np.full(pixels, -1.0)])
+    data = np.hstack([np.full(pixels, data[0]), data, np.full(pixels, data[-1])])
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
 
 
