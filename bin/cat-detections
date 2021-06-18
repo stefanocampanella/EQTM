@@ -1,0 +1,55 @@
+#! /usr/bin/env python
+import argparse
+import logging
+from importlib import resources
+from itertools import chain
+from pathlib import Path
+from time import perf_counter as timer
+
+from fastavro import reader, writer
+from fastavro.schema import load_schema
+from psutil import cpu_count
+from tqdm import tqdm
+
+parser = argparse.ArgumentParser(prog="stats")
+parser.add_argument("input", help="Input directory", type=Path)
+parser.add_argument("output", help="Output file path", type=Path)
+parser.add_argument("--log", help="Log level", default='info')
+parser.add_argument("--progress", help="Show progress bar", default=False, action='store_true')
+parser.add_argument("--stop", help="Stop if an error occurs", default=False, action='store_true')
+parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
+                    default='snappy')
+
+cli_args = parser.parse_args()
+
+logging.basicConfig(format='%(levelname)s-%(asctime)s: %(message)s',
+                    level=getattr(logging, cli_args.log.upper()))
+
+with resources.path('correlation_detector', 'event.avsc') as schema_path:
+    schema = load_schema(schema_path)
+
+
+def get_data(source, stop):
+    try:
+        with source.open('rb') as file:
+            logging.debug(f"Reading {file.name}")
+            for row in reader(file, reader_schema=schema):
+                yield row
+    except BaseException as exception:
+        if stop:
+            raise exception
+        else:
+            logging.warning(f"An error occurred while reading {source}", exc_info=exception)
+
+
+if __name__ == '__main__':
+    tic = timer()
+    logging.info(f"Reading from {cli_args.input}")
+    rows = chain.from_iterable(get_data(source, cli_args.stop) for source in cli_args.input.glob('*.avro'))
+    if cli_args.progress:
+        rows = tqdm(rows)
+    with open(cli_args.output.with_suffix('.avro'), 'wb') as sink:
+        logging.info(f"Writing to {sink.name}")
+        writer(sink, schema, rows, codec=cli_args.compression)
+    toc = timer()
+    logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")

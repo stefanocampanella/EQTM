@@ -56,9 +56,9 @@ else:
 if __name__ == '__main__':
     tic = timer()
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
-    templates = tqdm(cd.read_templates(cli_args.templates, cli_args.travel_times),
-                     total=len(list(cli_args.travel_times.glob('*.ttimes'))),
-                     disable=not cli_args.progress)
+    templates = cd.read_templates(cli_args.templates, cli_args.travel_times)
+    if cli_args.progress:
+        templates = tqdm(templates, total=len(list(cli_args.travel_times.glob('*.ttimes'))))
     events_buffer = []
     max_workers = cli_args.threads if cli_args.threads > 0 else max(cpu_count(logical=False), cli_args.max_channels)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
