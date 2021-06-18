@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(prog="correlation-detector")
 parser.add_argument("data", help="Continuous data path", type=Path)
 parser.add_argument("travel_times", help="Path to travel times directory", type=Path)
 parser.add_argument("templates", help="Path to templates directory", type=Path)
-parser.add_argument("output", help="Output file path")
+parser.add_argument("output", help="Output file path", type=Path)
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
@@ -54,6 +54,7 @@ else:
     streams = [nullcontext() for _ in range(cli_args.max_channels)]
 
 if __name__ == '__main__':
+    logging.info(f"Running correlation-detector with the following parameters: {vars(cli_args)}")
     tic = timer()
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
     templates = cd.read_templates(cli_args.templates, cli_args.travel_times)
@@ -97,10 +98,10 @@ if __name__ == '__main__':
                     raise exception
                 else:
                     logging.warning(f"An error occurred while processing template {index}", exc_info=exception)
-    output = Path(cli_args.output + '.avro')
+    output = cli_args.output.with_suffix('.avro')
     if output.exists():
         logging.info(f"{output} already exists, it will be overwritten.")
-    with open(output, 'wb') as file:
+    with output.open('wb') as file:
         logging.info(f"Writing to {file.name}")
         writer(file, schema, cd.flatten(events_buffer), codec=cli_args.compression)
     toc = timer()
