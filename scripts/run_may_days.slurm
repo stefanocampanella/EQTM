@@ -19,12 +19,12 @@ DAYS_PER_TASK=20
 export PYTHONPATH=$PROJECT_ROOT:$PYTHONPATH
 export PATH=$PROJECT_ROOT/bin:$PATH
 
-mapfile -t SOURCE_BATCH < <(find "$SOURCE_DIR" -name "*.mseed" | sort -n | head -n $((DAYS_PER_TASK * (SLURM_ARRAY_TASK_ID + 1))) | tail -n $DAYS_PER_TASK)
+mkdir -p "$OUTPUT_DIR"
+mapfile -t SOURCE_BATCH < <(find "$SOURCE_DIR" -type f -name "*.mseed" | sort -n | head -n $((DAYS_PER_TASK * (SLURM_ARRAY_TASK_ID + 1))) | tail -n $DAYS_PER_TASK)
 for INDEX in "${!SOURCE_BATCH[@]}"
 do
   SOURCE=${SOURCE_BATCH[INDEX]}
   export CUDA_VISIBLE_DEVICES=$((INDEX % 4)),
-  mkdir -p "$OUTPUT_DIR"
   OUTPUT="$OUTPUT_DIR/$(basename "${SOURCE%.mseed}")"
   correlation-detector "$SOURCE" "$TEMPLATES/travel_times" "$TEMPLATES/data" "$OUTPUT" &
 done
