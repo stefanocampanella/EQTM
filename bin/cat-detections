@@ -8,7 +8,6 @@ from time import perf_counter as timer
 
 from fastavro import reader, writer
 from fastavro.schema import load_schema
-from psutil import cpu_count
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser(prog="cat-detections")
