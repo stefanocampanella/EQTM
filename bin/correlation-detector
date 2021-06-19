@@ -54,7 +54,7 @@ else:
     streams = [nullcontext() for _ in range(cli_args.max_channels)]
 
 if __name__ == '__main__':
-    logging.info(f"Running correlation-detector with the following parameters: {vars(cli_args)}")
+    logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
     templates = cd.read_templates(cli_args.templates, cli_args.travel_times)
