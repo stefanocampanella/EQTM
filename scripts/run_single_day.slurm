@@ -1,20 +1,25 @@
 #! /usr/bin/env bash
 #SBATCH --job-name=RISE
 #SBATCH --account=IscrB_PALEOMIT
+#SBATCH --array=0-3300
 #SBATCH --partition=m100_usr_preempt
 #SBATCH --time=30:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=128
 #SBATCH --gres=gpu:4
 #SBATCH --output=logs/%A_%a.log
+#SBATCH	--requeue 
 #SBATCH --verbose
 
 PROJECT_ROOT=$CINECA_SCRATCH/correlation-detector
 DATA_ROOT=$CINECA_SCRATCH/RISE_DATA_MARCONI_REVISED/with_HN
+TEMPLATES_DIR=$DATA_ROOT/templates
 TEMPLATES_BATCHES_DIR=$DATA_ROOT/templates/batches
 SOURCE_DIR=$DATA_ROOT/data
 OUTPUT_DIR=$DATA_ROOT/outputs
 BATCHES_OUTPUT_DIR=$TMPDIR/outputs
+STATS_DIR=$DATA_ROOT/stats
+CATALOGUE=$TEMPLATES_DIR/catalogue.zmap
 
 export PYTHONPATH=$PROJECT_ROOT:$PYTHONPATH
 export PATH=$PROJECT_ROOT/bin:$PATH
@@ -35,6 +40,10 @@ done
 wait
 
 mkdir -p "$OUTPUT_DIR"
-cat-detections "$BATCHES_OUTPUT_DIR" "$OUTPUT_DIR/$SOURCE_NAME"
+OUTPUT=$OUTPUT_DIR/$SOURCE_NAME
+cat-detections "$BATCHES_OUTPUT_DIR" "$OUTPUT"
+mkdir -p "$STATS_DIR"
+STATS=$STATS_DIR/$SOURCE_NAME
+detections-stats "$CATALOGUE" "$OUTPUT" "$STATS"
 
 exit
