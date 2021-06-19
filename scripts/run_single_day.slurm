@@ -23,12 +23,12 @@ mapfile -t ALL_SOURCES < <(find "$SOURCE_DIR" -type f -name "*.mseed" | sort -n 
 SOURCE="${ALL_SOURCES[SLURM_ARRAY_TASK_ID]}"
 SOURCE_NAME=$(basename "${SOURCE%.mseed}")
 
-mkdir -p $BATCHES_OUTPUT_DIR
+mkdir -p "$BATCHES_OUTPUT_DIR"
 mapfile -t TEMPLATES_BATCHES < <(find "$TEMPLATES_BATCHES_DIR" -type d -mindepth 1 -maxdepth 1 | sort -n)
 for BATCH in "${!TEMPLATES_BATCHES[@]}"
 do
   TEMPLATES_BATCH=${TEMPLATES_BATCHES[BATCH]}
-  BATCH_OUTPUT=BATCHES_OUTPUT_DIR/${SOURCE_NAME}_$BATCH
+  BATCH_OUTPUT=$BATCHES_OUTPUT_DIR/${SOURCE_NAME}_$BATCH
   export CUDA_VISIBLE_DEVICES=$((BATCH % 4)),
   correlation-detector "$SOURCE" "$TEMPLATES_BATCH/travel_times" "$TEMPLATES_BATCH/data" "$BATCH_OUTPUT" &
 done
