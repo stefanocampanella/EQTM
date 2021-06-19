@@ -48,7 +48,10 @@ if __name__ == '__main__':
     rows = chain.from_iterable(get_data(source, cli_args.stop) for source in cli_args.input.glob('*.avro'))
     if cli_args.progress:
         rows = tqdm(rows)
-    with open(cli_args.output.with_suffix('.avro'), 'wb') as sink:
+    output = cli_args.output.with_suffix('.avro')
+    if output.exists():
+        logging.info(f"{output} already exists, it will be overwritten.")
+    with output.open('wb') as sink:
         logging.info(f"Writing to {sink.name}")
         writer(sink, schema, rows, codec=cli_args.compression)
     toc = timer()

@@ -22,7 +22,7 @@ parser.add_argument("--min_channels", help="Minimum number of channels with corr
                     type=int, default=7)
 parser.add_argument("--mag_relative_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
-parser.add_argument("--log", help="Log level", default='error')
+parser.add_argument("--log", help="Log level", default='info')
 parser.add_argument("--sort", help="Sort output by template and date", default=False, action='store_true')
 parser.add_argument("--progress", help="Show progress bar", default=False, action='store_true')
 
@@ -65,9 +65,15 @@ if __name__ == '__main__':
             events_buffer.sort(key=lambda event: (event['template'], event['timestamp']))
     logging.info(f"Writing {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'} "
                  f"to {cli_args.output}.cat and {cli_args.output}.stats")
-    with cli_args.output.with_suffix('.cat').open('w') as file:
+    cat = cli_args.output.with_suffix('.cat')
+    if cat.exists():
+        logging.info(f"{cat} already exists, it will be overwritten.")
+    with cat.open('w') as file:
         file.writelines(cd.format_cat(event) for event in events_buffer)
-    with cli_args.output.with_suffix('.stats').open('w') as file:
+    stats = cli_args.output.with_suffix('.stats')
+    if stats.exists():
+        logging.info(f"{stats} already exists, it will be overwritten.")
+    with stats.open('w') as file:
         file.writelines(cd.format_stats(event) for event in events_buffer)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
