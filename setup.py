@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="correlation-detector",
-    version="1.0.3",
+    version="1.0.8",
     author="Stefano Campanella",
     author_email="scampanella@inogs.it",
     description="Earthquake detection in continuous waveform data using template matching",
@@ -19,5 +19,18 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
+    install_requires=[
+        'numpy',
+        'scipy',
+        'pandas',
+        'bottleneck',
+        'tqdm',
+        'psutil',
+        'fastavro',
+        'python-snappy',
+        'obspy'
+    ],
+    extras_require={'GPU acceleration': ['cupy']},
+    include_package_data=True,
     python_requires='>=3.8',
 )
