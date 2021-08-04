@@ -65,6 +65,7 @@ if __name__ == '__main__':
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for index, template, ttimes in templates:
             try:
+                mystery_shift = 2 * min(ttimes.values()) # mystery of faith
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 signal = sum(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.tolerance), correlations))
@@ -75,7 +76,7 @@ if __name__ == '__main__':
                 template_reference = UTCDateTime(np.mean([trace.stats.starttime.timestamp - ttime
                                                           for trace, ttime in zip(template, ttimes.values())]))
                 delta = np.mean([trace.stats.delta for trace in correlations])
-                event_shift = 2 * min(ttimes.values()) + 0.5 * delta  # mystery of faith
+                event_shift = mystery_shift + 0.5 * delta
                 detections = []
                 for peak in peaks:
                     event_date = data_starttime + peak * delta
