@@ -43,14 +43,7 @@ def read_templates(templates_directory: Path,
             template_number = int(match.group('template_number'))
             try:
                 logging.debug(f"Reading {ttimes_path}")
-                travel_times = OrderedDict()
-                with open(ttimes_path, "r") as ttimes_file:
-                    while line := ttimes_file.readline():
-                        key, value_string = line.split(' ')
-                        network, station, channel = key.split('.')
-                        trace_id = f"{network}.{station}..{channel}"
-                        value = float(value_string)
-                        travel_times[trace_id] = value
+                travel_times = read_ttimes(ttimes_path)
                 template_path = templates_directory / f"{template_number}.mseed"
                 logging.debug(f"Reading {template_path}")
                 with template_path.open('rb') as template_file:
@@ -59,6 +52,18 @@ def read_templates(templates_directory: Path,
                 yield template_number, template_stream, travel_times
             except OSError as exception:
                 logging.warning(f"OSError occurred while reading template {template_number}", exc_info=exception)
+
+
+def read_ttimes(ttimes_path):
+    travel_times = OrderedDict()
+    with open(ttimes_path, "r") as ttimes_file:
+        while line := ttimes_file.readline():
+            key, value_string = line.split(' ')
+            network, station, channel = key.split('.')
+            trace_id = f"{network}.{station}..{channel}"
+            value = float(value_string)
+            travel_times[trace_id] = value
+    return travel_times
 
 
 def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],
