@@ -23,10 +23,10 @@ except ImportError:
 import correlation_detector as cd
 
 parser = argparse.ArgumentParser(prog="correlation-detector")
-parser.add_argument("data", help="Continuous data path", type=Path)
+parser.add_argument("data", help="Continuous data path, location of the mseed file", type=Path)
 parser.add_argument("travel_times", help="Path to travel times directory", type=Path)
 parser.add_argument("templates", help="Path to templates directory", type=Path)
-parser.add_argument("output", help="Output file path", type=Path)
+parser.add_argument("output", help="Output file path, location of the avro file", type=Path)
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=15)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
@@ -65,7 +65,7 @@ if __name__ == '__main__':
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for index, template, ttimes in templates:
             try:
-                mystery_shift = 2 * min(ttimes.values()) # mystery of faith
+                mystery_shift = 2 * min(ttimes.values())  # mystery of faith
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
                 correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 signal = sum(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.tolerance), correlations))
