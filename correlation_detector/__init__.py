@@ -2,14 +2,16 @@ import logging
 import re
 from collections import OrderedDict
 from contextlib import nullcontext
-from math import log10, nan
+from copy import deepcopy
+from functools import lru_cache
+from math import log10, nan, inf
 from pathlib import Path
 from typing import Tuple, Dict, Generator
 
 import bottleneck as bn
 import numpy as np
 import pandas as pd
-from obspy import read, Stream, Trace
+from obspy import read, Stream, Trace, UTCDateTime
 
 try:
     import cupy
@@ -36,26 +38,33 @@ def read_templates(templates_directory: Path,
                    ttimes_directory: Path) -> Generator[Tuple[int, Stream, Dict], None, None]:
     logging.info(f"Reading travel times from {ttimes_directory}")
     logging.info(f"Reading templates from {templates_directory}")
-    file_regex = re.compile(r'(?P<template_number>\d+).ttimes')
-    for ttimes_path in ttimes_directory.glob('*.ttimes'):
-        match = file_regex.match(ttimes_path.name)
+    file_regex = re.compile(r'(?P<template_number>\d+).mseed')
+    for template_path in templates_directory.glob('*.mseed'):
+        match = file_regex.match(template_path.name)
         if match:
             template_number = int(match.group('template_number'))
             try:
-                logging.debug(f"Reading {ttimes_path}")
-                travel_times = read_ttimes(ttimes_path)
-                template_path = templates_directory / f"{template_number}.mseed"
-                logging.debug(f"Reading {template_path}")
-                with template_path.open('rb') as template_file:
-                    template_stream = read(template_file, dtype=np.float64)
-                template_stream.merge(fill_value=0)
+                travel_times = read_ttimes(ttimes_directory, template_number)
+                template_stream = read_template(templates_directory, template_number)
                 yield template_number, template_stream, travel_times
             except OSError as exception:
                 logging.warning(f"OSError occurred while reading template {template_number}", exc_info=exception)
 
 
-def read_ttimes(ttimes_path):
+def read_template(templates_directory, template_number):
+    template_path = templates_directory / f"{template_number}.mseed"
+    logging.debug(f"Reading from {template_path}")
+    with template_path.open('rb') as template_file:
+        template_stream = read(template_file, dtype=np.float64)
+    template_stream.merge(fill_value=0)
+    return template_stream
+
+
+@lru_cache
+def read_ttimes(ttimes_directory, template_number):
+    ttimes_path = ttimes_directory / f"{template_number}.ttimes"
     travel_times = OrderedDict()
+    logging.debug(f"Reading from {ttimes_path}")
     with open(ttimes_path, "r") as ttimes_file:
         while line := ttimes_file.readline():
             key, value_string = line.split(' ')
@@ -73,13 +82,13 @@ def match_traces(data: Stream, template: Stream, travel_times: Dict[str, float],
                                         set(travel_times)),
                        key=lambda trace_id: (travel_times[trace_id], trace_id[-1]))[:max_channels]
     if not trace_ids:
-        raise RuntimeError("No matches between data, template and travel times.")
+        raise RuntimeError("No matches between data, template and travel times")
     logging.debug(f"Traces used: {', '.join(trace_ids)}")
     data = Stream(traces=[find_trace(data, trace_id) for trace_id in trace_ids])
     template = Stream(traces=[find_trace(template, trace_id) for trace_id in trace_ids])
     travel_times = OrderedDict([(trace_id, travel_times[trace_id]) for trace_id in trace_ids])
     if any(data_trace.stats.delta != template_trace.stats.delta for data_trace, template_trace in zip(data, template)):
-        raise RuntimeError("Data and template must have the same delta.")
+        raise RuntimeError("Data and template must have the same delta")
     return data, template, travel_times
 
 
@@ -186,8 +195,81 @@ def flatten(events_buffer):
 
 def read_zmap(catalog_path):
     logging.info(f"Reading catalog from {catalog_path}")
-    template_magnitudes = pd.read_csv(catalog_path, sep=r'\s+', usecols=(5,), squeeze=True, dtype=float)
-    return template_magnitudes
+    zmap = pd.read_csv(catalog_path,
+                       sep=r'\s+',
+                       usecols=range(10),
+                       names=['longitude',
+                              'latitude',
+                              'year',
+                              'month',
+                              'day',
+                              'magnitude',
+                              'depth',
+                              'hour',
+                              'minute',
+                              'second'])
+    return zmap
+
+
+def make_record(event, zmap, network_path, ttimes_directory):
+    network = read_network(network_path)
+    record = {}
+    for key in ["template", "timestamp", "dmad"]:
+        record[key] = event[key]
+
+    template = event['template']
+    for key in ["latitude", "longitude", "depth", "magnitude"]:
+        record[key] = zmap[key][template]
+
+    channels = {channel['id']: channel for channel in event['channels']}
+    for channel_name in network:
+        if channel_name in channels:
+            record[f"{channel_name}_ttime"] = read_ttimes(ttimes_directory, template)[channel_name]
+            for key in ['correlation', 'shift', 'magnitude']:
+                record[f"{channel_name}_{key}"] = channels[channel_name][key]
+        else:
+            record[f"{channel_name}_ttime"] = nan
+            for key in ['correlation', 'shift', 'magnitude']:
+                record[f"{channel_name}_{key}"] = nan
+
+    return record
+
+
+@lru_cache
+def read_network(network_path):
+    network = set()
+    logging.debug(f"Reading {network_path}")
+    with open(network_path, "r") as network_file:
+        while line := network_file.readline():
+            line = line.rstrip('\n')
+            network_name, station, channel = line.split('.')
+            trace_id = f"{network_name}.{station}..{channel}"
+            network.add(trace_id)
+    return network
+
+
+def make_legacy_record(event, zmap, threshold, mag_relative_threshold):
+    template = event['template']
+    channels = event['channels']
+    template_magnitudes = zmap['magnitude']
+    num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
+    timestamp = UTCDateTime(event['timestamp'])
+    height = sum(channel['height'] for channel in channels) / len(channels)
+    correlation = sum(channel['correlation'] for channel in channels) / len(channels)
+    template_magnitude = template_magnitudes[template]
+    magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
+                                   mag_relative_threshold)
+    dmad = event['dmad']
+    record = deepcopy(event)
+    record.update({'datetime': timestamp, 'height': height, 'correlation': correlation,
+                   'magnitude': magnitude, 'template_magnitude': template_magnitude,
+                   'channels': channels, 'num_channels': num_channels,
+                   'crt_pre': inf if dmad == 0.0 else height / dmad,
+                   'crt_post': inf if dmad == 0.0 else correlation / dmad})
+    for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
+        record[name] = sum(1 for channel in channels if channel['correlation'] > ref)
+
+    return record
 
 
 def format_stats(event):

@@ -101,9 +101,9 @@ if __name__ == '__main__':
                     logging.warning(f"An error occurred while processing template {index}", exc_info=exception)
     output = cli_args.output.with_suffix('.avro')
     if output.exists():
-        logging.info(f"{output} already exists, it will be overwritten.")
+        logging.info(f"{output} already exists, it will be overwritten")
     with output.open('wb') as file:
         logging.info(f"Writing to {file.name}")
         writer(file, schema, cd.flatten(events_buffer), codec=cli_args.compression)
     toc = timer()
-    logging.info(f"Elapsed time: {toc - tic:.2f} seconds.")
+    logging.info(f"Elapsed time: {toc - tic:.2f} seconds")

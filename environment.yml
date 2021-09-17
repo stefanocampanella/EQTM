@@ -17,5 +17,7 @@ dependencies:
   - fastavro
   - python-snappy
   - numba
+  - scikit-learn
+  - xgboost
   - pip:
     - obspy
