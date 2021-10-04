@@ -13,7 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/stefanocampanella/correlation-detector",
     packages=setuptools.find_packages(),
-    scripts=['bin/avro-cat', 'bin/catalogue', 'bin/corrscan', 'bin/select', 'bin/ttimes-shuf'],
+    scripts=['bin/avro-cat', 'bin/catalogue', 'bin/corrscan', 'bin/select-events', 'bin/ttimes-shuf'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
