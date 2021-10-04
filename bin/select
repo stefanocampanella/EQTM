@@ -1,0 +1,67 @@
+#! /usr/bin/env python
+import argparse
+import datetime
+import logging
+from importlib import resources
+from pathlib import Path
+from time import perf_counter as timer
+
+import pandas as pd
+from fastavro import reader, writer
+from fastavro.schema import load_schema
+
+parser = argparse.ArgumentParser(prog=__file__)
+parser.add_argument("list", help="Path to event catalog, location of the zmap file", type=Path)
+parser.add_argument("input", help="Input file path, location of the avro file", type=Path)
+parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
+parser.add_argument("--distance", help="Tolerance in seconds", type=float, default=0.005)
+parser.add_argument("--log", help="Log level", default='info')
+parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
+                    default='snappy')
+
+cli_args = parser.parse_args()
+
+logging.basicConfig(format='%(levelname)s-%(asctime)s: %(message)s',
+                    level=getattr(logging, cli_args.log.upper()))
+
+
+with resources.path('correlation_detector', 'event.avsc') as schema_path:
+    schema = load_schema(schema_path)
+
+if __name__ == '__main__':
+    logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
+    tic = timer()
+    logging.info(f"Reading from {cli_args.selection}")
+    selection = pd.read_csv(cli_args.list, delimiter=' ', parse_dates=[1], usecols=[0, 1],
+                            names=['template', 'date'])
+    records = []
+    for template, date in selection.itertuples(index=False):
+        to_process = []
+        date_string = date.strftime("%Y-%m-%d")
+        to_process.append(cli_args.input / (date_string + ".mseed"))
+        if date.hour == 0:
+            daybefore_string = (date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+            to_process.append(cli_args.input / (daybefore_string + ".mseed"))
+        elif date.hour == 23:
+            dayafter_string = (date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+            to_process.append(cli_args.input / (dayafter_string + ".mseed"))
+        for filename in to_process:
+            candidates = []
+            with filename.open('rb') as file:
+                for event in reader(file, reader_schema=schema):
+                    if template == event['template']:
+                        if abs(date.timestamp - event['timestamp']) < cli_args.distance:
+                            candidates.append(event)
+                        elif date.timestamp > event['timestamp']:
+                            continue
+                    else:
+                        continue
+            if candidates:
+                records.append(max(candidates,
+                                   key=lambda x: sum(ch['correlation'] for ch in x['channels']) / len(x['channels'])))
+            else:
+                logging.warning(f"Event at {date.isoformat()} for template {template} not found")
+    with open(cli_args.output.with_suffix('.avro'), 'wb') as file:
+        writer(file, schema, records, cli_args.compression)
+    toc = timer()
+    logging.info(f"Elapsed time: {toc - tic:.2f} seconds")

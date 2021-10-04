@@ -1,5 +1,6 @@
 import logging
 import re
+import json
 from collections import OrderedDict
 from contextlib import nullcontext
 from copy import deepcopy
@@ -229,7 +230,7 @@ def make_record(event, zmap, network_path, ttimes_directory):
                 record[f"{channel_name}_{key}"] = channels[channel_name][key]
         else:
             record[f"{channel_name}_ttime"] = nan
-            for key in ['correlation', 'shift', 'magnitude']:
+            for key in ['height', 'correlation', 'shift', 'magnitude']:
                 record[f"{channel_name}_{key}"] = nan
 
     return record
@@ -291,3 +292,37 @@ def format_cat(event):
     return f"{event['template']} {event['datetime'].isoformat()} {event['magnitude']:.2f} " \
            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
            f"{event['num_channels']}\n"
+
+
+def format_jsonline(event):
+    line_data = {}
+    for key, value in event.items():
+        if key in ["template", "timestamp", "dmad"]:
+            line_data[key] = value
+    channels = []
+    for channel in event["channels"]:
+        new_channel = {}
+        for key, value in channel.items():
+            if key in ["id", "height", "correlation", "magnitude", "shift"]:
+                new_channel[key] = value
+        channels.append(new_channel)
+    line_data["channels"] = channels
+    return json.dumps(line_data, cls=NumpyEncoder) + '\n'
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.bool_)):
+            return bool(obj)
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.complexfloating):
+            return {'real': obj.real, 'imag': obj.imag}
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.void):
+            return None
+        else:
+            return json.JSONEncoder.default(self, obj)
