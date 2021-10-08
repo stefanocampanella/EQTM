@@ -9,6 +9,7 @@ from time import perf_counter as timer
 import pandas as pd
 from fastavro import reader, writer
 from fastavro.schema import load_schema
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("list", help="Path to event catalog, location of the zmap file", type=Path)
@@ -35,7 +36,7 @@ if __name__ == '__main__':
     selection = pd.read_csv(cli_args.list, delimiter=' ', parse_dates=[1], usecols=[0, 1],
                             names=['template', 'date'])
     records = []
-    for template, date in selection.itertuples(index=False):
+    for template, date in tqdm(selection.itertuples(index=False)):
         to_process = []
         date_string = date.strftime("%Y-%m-%d")
         to_process.append(cli_args.input / (date_string + ".mseed"))

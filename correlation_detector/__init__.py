@@ -212,6 +212,12 @@ def read_zmap(catalog_path):
     return zmap
 
 
+def clean(event):
+    event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + np.finfo(np.float32).eps,
+                                    event['channels']))
+    return event
+
+
 def make_record(event, zmap, network_path, ttimes_directory):
     network = read_network(network_path)
     record = {}
