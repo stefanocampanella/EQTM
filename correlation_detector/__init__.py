@@ -99,14 +99,14 @@ def find_trace(stream: Stream, trace_id: str):
             return trace
 
 
-def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nullcontext()) -> Trace:
+def correlate_trace(continuous: Trace, template: Trace, delay: float, atol: float, stream=nullcontext()) -> Trace:
     header = {"network": continuous.stats.network,
               "station": continuous.stats.station,
               "channel": continuous.stats.channel,
               "starttime": continuous.stats.starttime,
               "sampling_rate": continuous.stats.sampling_rate}
     with stream:
-        correlation = correlate_data(continuous.data, template.data)
+        correlation = correlate_data(continuous.data, template.data, atol)
     trace = Trace(data=correlation, header=header)
 
     starttime = continuous.stats.starttime + delay
@@ -115,7 +115,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray, atol: float) -> np.ndarray:
     data = xp.asarray(data)
     template = xp.asarray(template)
     template -= xp.mean(template)
@@ -133,6 +133,8 @@ def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     xp.sqrt(norm, out=norm)
     correlation[mask] = 0.0
     correlation /= norm
+    mask = correlation > 1 + atol
+    correlation[mask] = 0.0
     if xp == cupy:
         # noinspection PyUnresolvedReferences
         return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
@@ -212,9 +214,8 @@ def read_zmap(catalog_path):
     return zmap
 
 
-def clean(event):
-    event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + np.finfo(np.float32).eps,
-                                    event['channels']))
+def clean(event, tolerance):
+    event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + tolerance, event['channels']))
     return event
 
 

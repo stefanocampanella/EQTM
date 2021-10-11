@@ -52,6 +52,7 @@ if __name__ == '__main__':
     if output.exists():
         logging.info(f"{output} already exists, it will be overwritten.")
     if cli_args.hdf:
+        logging.info(f"Writing to {output.name}")
         catalogue = pd.HDFStore(output, mode='w', complib=cli_args.compression)
         paths = sorted(cli_args.input.glob('*.h5'))
         if cli_args.progress:
