@@ -75,7 +75,7 @@ if __name__ == '__main__':
         events_buffer.sort(key=lambda event: (event['template'], event['timestamp']))
     zmap = cd.read_zmap(cli_args.catalog)
     if cli_args.csv or cli_args.hdf:
-        output = cli_args.output.with_suffix('.csv' if cli_args.csv else '.hdf')
+        output = cli_args.output.with_suffix('.csv' if cli_args.csv else '.h5')
         logging.info(f"Writing {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'} to {output.name}")
         records = map(lambda event: cd.make_record(event, zmap, cli_args.network, cli_args.ttimes), events_buffer)
         df = pd.DataFrame.from_records(records)
