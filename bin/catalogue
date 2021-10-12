@@ -16,13 +16,13 @@ parser.add_argument("catalog", help="Path to event catalog, location of the zmap
 parser.add_argument("input", help="Input file path, location of the jsonl/avro file", type=Path)
 parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
 parser.add_argument("--distance", help="Minimum distance between events in seconds", type=float, default=6.0)
-parser.add_argument("--precision", help="Precision to use in timestamps rounding", type=float, default=1e-6)
+parser.add_argument("--time_precision", help="Precision to use in timestamps rounding", type=float, default=1e-6)
 parser.add_argument("--corr_atol", help="Absolute tolerance in normalized correlation calculations",
                     type=float, default=1e-3)
 parser.add_argument("--min_stations", help="Minimum number of channels", type=int, default=3)
-parser.add_argument("--filter_threshold", help="Correlation threshold per channels", type=float, default=0.35)
-parser.add_argument("--threshold", help="Correlation threshold per channels", type=float, default=0.4)
-parser.add_argument("--mag_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
+parser.add_argument("--corr_threshold", help="Correlation threshold per channels", type=float, default=0.35)
+parser.add_argument("--catstats_corr_threshold", help="Correlation threshold per channels", type=float, default=0.4)
+parser.add_argument("--catstats_mag_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
 parser.add_argument("--csv", help="Output CSV instead of legacy format", default=False, action='store_true')
 parser.add_argument("--hdf", help="Output HDF5 instead of legacy format", default=False, action='store_true')
@@ -63,18 +63,18 @@ if __name__ == '__main__':
     tic = timer()
     logging.info(f"Reading from {cli_args.input}")
     with cli_args.input.open(mode) as file:
-        events_buffer = [cd.clean(event, cli_args.corr_atol, cli_args.min_stations, cli_args.filter_threshold)
+        events_buffer = [cd.clean(event, cli_args.corr_atol, cli_args.min_stations, cli_args.corr_threshold)
                          for event in reader(file, reader_schema=schema) if event]
     logging.info(f"Found {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'}")
     if cli_args.distance > 0:
         events_buffer.sort(key=lambda event: event['timestamp'])
-        timestamps = np.fromiter((event['timestamp'] / cli_args.precision for event in events_buffer), dtype=int)
+        timestamps = np.fromiter((event['timestamp'] / cli_args.time_precision for event in events_buffer), dtype=int)
         correlations = np.fromiter((sum(channel['correlation']
                                         for channel in event['channels']) / len(event['channels'])
                                     for event in events_buffer), dtype=float)
         to_keep = _select_by_peak_distance(timestamps,
                                            correlations,
-                                           cli_args.distance / cli_args.precision)
+                                           cli_args.distance / cli_args.time_precision)
         events_buffer = [event for (event, is_to_keep) in zip(events_buffer, to_keep) if is_to_keep]
     if cli_args.sort:
         events_buffer.sort(key=lambda event: (event['template'], event['timestamp']))
@@ -89,7 +89,8 @@ if __name__ == '__main__':
         else:
             df.to_hdf(output, key='catalogue', mode='w', format='table', complib=cli_args.compression, index=False)
     else:
-        records = list(map(lambda event: cd.make_legacy_record(event, zmap, cli_args.threshold, cli_args.mag_threshold),
+        records = list(map(lambda event: cd.make_legacy_record(event, zmap, cli_args.catstats_corr_threshold,
+                                                               cli_args.catstats_mag_threshold),
                            events_buffer))
         logging.info(f"Writing {len(records)} {'events' if len(records) > 1 else 'event'} "
                      f"to {cli_args.output}.cat and {cli_args.output}.stats")
