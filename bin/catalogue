@@ -63,11 +63,12 @@ if __name__ == '__main__':
     tic = timer()
     logging.info(f"Reading from {cli_args.input}")
     with cli_args.input.open(mode) as file:
-        events_buffer = [cd.clean(event, cli_args.corr_atol, cli_args.min_stations, cli_args.corr_threshold)
-                         for event in reader(file, reader_schema=schema) if event]
+        events_buffer = sorted(filter(None, map(lambda event: cd.clean(event, cli_args.corr_atol, cli_args.min_stations,
+                                                                       cli_args.corr_threshold),
+                                                reader(file, reader_schema=schema))),
+                               key=lambda event: event['timestamp'])
     logging.info(f"Found {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'}")
     if cli_args.distance > 0:
-        events_buffer.sort(key=lambda event: event['timestamp'])
         timestamps = np.fromiter((event['timestamp'] / cli_args.time_precision for event in events_buffer), dtype=int)
         correlations = np.fromiter((sum(channel['correlation']
                                         for channel in event['channels']) / len(event['channels'])
