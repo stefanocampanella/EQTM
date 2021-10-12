@@ -214,9 +214,12 @@ def read_zmap(catalog_path):
     return zmap
 
 
-def clean(event, tolerance):
-    event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + tolerance, event['channels']))
-    return event
+def clean(event, corr_atol, min_stations, filter_threshold):
+    event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + corr_atol, event['channels']))
+    num_stations = len({station for station, _ in map(lambda ch: ch['id'].split('..'), event['channels'])})
+    correlation = sum(ch['correlation'] for ch in event['channels']) / len(event['channels'])
+    if num_stations > min_stations and correlation > filter_threshold:
+        return event
 
 
 def make_record(event, zmap, network_path, ttimes_directory):

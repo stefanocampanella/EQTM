@@ -18,7 +18,9 @@ parser.add_argument("output", help="Output file path, stem of the output cat and
 parser.add_argument("--distance", help="Minimum distance between events in seconds", type=float, default=6.0)
 parser.add_argument("--precision", help="Precision to use in timestamps rounding", type=float, default=1e-6)
 parser.add_argument("--corr_atol", help="Absolute tolerance in normalized correlation calculations",
-                    type=float, default=1e-4)
+                    type=float, default=1e-3)
+parser.add_argument("--min_stations", help="Minimum number of channels", type=int, default=3)
+parser.add_argument("--filter_threshold", help="Correlation threshold per channels", type=float, default=0.35)
 parser.add_argument("--threshold", help="Correlation threshold per channels", type=float, default=0.4)
 parser.add_argument("--mag_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
@@ -61,7 +63,8 @@ if __name__ == '__main__':
     tic = timer()
     logging.info(f"Reading from {cli_args.input}")
     with cli_args.input.open(mode) as file:
-        events_buffer = [cd.clean(event, cli_args.corr_atol) for event in reader(file, reader_schema=schema)]
+        events_buffer = [cd.clean(event, cli_args.corr_atol, cli_args.min_stations, cli_args.filter_threshold)
+                         for event in reader(file, reader_schema=schema) if event]
     logging.info(f"Found {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'}")
     if cli_args.distance > 0:
         events_buffer.sort(key=lambda event: event['timestamp'])
