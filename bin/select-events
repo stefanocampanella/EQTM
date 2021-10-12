@@ -1,24 +1,29 @@
 #! /usr/bin/env python
 import argparse
-from datetime import datetime, timedelta, timezone
 import logging
+from concurrent.futures import ProcessPoolExecutor as Executor
+from datetime import datetime, timedelta, timezone
 from importlib import resources
+from itertools import repeat
 from pathlib import Path
 from time import perf_counter as timer
-from concurrent.futures import ProcessPoolExecutor as Executor
-from itertools import repeat
-
 
 import pandas as pd
-from fastavro import reader, writer
+from fastavro import reader
 from fastavro.schema import load_schema
 from tqdm import tqdm
 
+import correlation_detector as cd
+
 parser = argparse.ArgumentParser(prog=__file__)
+parser.add_argument("catalog", help="Path to event catalog, location of the zmap file", type=Path)
 parser.add_argument("list", help="Path to event catalog, location of the zmap file", type=Path)
 parser.add_argument("input", help="Input file path, location of the avro file", type=Path)
 parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
 parser.add_argument("--atol", help="Tolerance in seconds", type=float, default=0.005)
+parser.add_argument("--catstats_corr_threshold", help="Correlation threshold per channels", type=float, default=0.4)
+parser.add_argument("--catstats_mag_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
+                    default=2.0)
 parser.add_argument("--threads", help="Number of threads to use", type=int, default=0)
 parser.add_argument("--log", help="Log level", default='info')
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
@@ -29,7 +34,6 @@ cli_args = parser.parse_args()
 
 logging.basicConfig(format='%(levelname)s-%(asctime)s: %(message)s',
                     level=getattr(logging, cli_args.log.upper()))
-
 
 with resources.path('correlation_detector', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)
@@ -48,25 +52,32 @@ def filenames_from_date(date):
     return filenames
 
 
-def find_record(template, timestamp, filenames, atol):
+def find_event(template, timestamp, filenames, atol):
     candidates = []
     for filename in filenames:
         with filename.open('rb') as file:
             for event in reader(file, reader_schema=schema):
                 if template == event['template']:
                     if abs(timestamp - event['timestamp']) < atol:
-                        candidates.append(event)
+                        candidates.append((event, filename))
                     elif timestamp > event['timestamp']:
                         continue
                 else:
                     continue
     if candidates:
         return max(candidates,
-                   key=lambda x: sum(ch['correlation'] for ch in x['channels']) / len(x['channels']))
+                   key=lambda pair: sum(ch['correlation'] for ch in pair[0]['channels']) / len(pair[0]['channels']))
     else:
         logging.warning(f"Event at {datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()} "
                         f"for template {template} not found")
-        return None
+
+
+def write_record(filename, records):
+    with (cli_args.output / filename.stem).with_suffix('.cat').open('w') as file:
+        file.writelines(cd.format_cat(record) for record in records)
+    with (cli_args.output / filename.stem).with_suffix('.stats').open('w') as file:
+        file.writelines(cd.format_stats(record) for record in records)
+
 
 if __name__ == '__main__':
     logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
@@ -81,15 +92,21 @@ if __name__ == '__main__':
     else:
         raise RuntimeError("Unknown file format.")
     filenames_queue = selection['date'].map(filenames_from_date)
-        
+    zmap = cd.read_zmap(cli_args.catalog)
     max_workers = cli_args.threads if cli_args.threads > 0 else None
     with Executor(max_workers=max_workers) as pool:
-        maybe_records = pool.map(find_record, selection['template'], selection['timestamp'], filenames_queue,
-                                 repeat(cli_args.atol))
+        maybe_pairs = pool.map(find_event, selection['template'], selection['timestamp'], filenames_queue,
+                               repeat(cli_args.atol))
         if cli_args.progress:
-            maybe_records = tqdm(maybe_records, total=len(selection))
-        with open(cli_args.output.with_suffix('.avro'), 'wb') as file:
-            logging.info(f"Writing to {file.name}")
-            writer(file, schema, filter(None, maybe_records), cli_args.compression)
+            maybe_pairs = tqdm(maybe_pairs, total=len(selection))
+        records_by_filename = {}
+        for event, filename in filter(None, maybe_pairs):
+            record = cd.make_legacy_record(event, zmap, cli_args.catstats_corr_threshold,
+                                           cli_args.catstats_mag_threshold)
+            if filename in records_by_filename:
+                records_by_filename[filename].append(record)
+            else:
+                records_by_filename[filename] = [record]
+        pool.map(write_record, records_by_filename.keys(), records_by_filename.values())
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds")
