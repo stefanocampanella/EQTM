@@ -19,5 +19,6 @@ dependencies:
   - numba
   - scikit-learn
   - xgboost
+  - fastparquet
   - pip:
     - obspy

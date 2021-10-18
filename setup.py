@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="correlation-detector",
-    version="1.1.1",
+    version="1.5.0",
     author="Stefano Campanella",
     author_email="scampanella@inogs.it",
     description="Earthquake detection in continuous waveform data using template matching",
@@ -13,7 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/stefanocampanella/correlation-detector",
     packages=setuptools.find_packages(),
-    scripts=['bin/avro-cat', 'bin/catalogue', 'bin/corrscan', 'bin/select-events', 'bin/ttimes-shuf'],
+    scripts=['bin/eqtm-scan', 'bin/eqtm-postprocess', 'bin/eqtm-parquet2legacy', 'bin/eqtm-filter', 'bin/eqtm-select'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
@@ -28,7 +28,9 @@ setuptools.setup(
         'psutil',
         'fastavro',
         'python-snappy',
-        'obspy'
+        'obspy',
+        'xgboost',
+        'fastparquet'
     ],
     extras_require={'GPU acceleration': ['cupy']},
     include_package_data=True,
