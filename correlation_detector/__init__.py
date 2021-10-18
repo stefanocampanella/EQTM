@@ -1,18 +1,17 @@
 import logging
 import re
-import json
 from collections import OrderedDict
 from contextlib import nullcontext
-from copy import deepcopy
 from functools import lru_cache
 from math import log10, nan, inf
 from pathlib import Path
 from typing import Tuple, Dict, Generator
+from datetime import timedelta
 
 import bottleneck as bn
 import numpy as np
 import pandas as pd
-from obspy import read, Stream, Trace, UTCDateTime
+from obspy import read, Stream, Trace
 
 try:
     import cupy
@@ -35,8 +34,8 @@ def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
     return data
 
 
-def read_templates(templates_directory: Path,
-                   ttimes_directory: Path) -> Generator[Tuple[int, Stream, Dict], None, None]:
+def read_templatesdata(templates_directory: Path,
+                       ttimes_directory: Path) -> Generator[Tuple[int, Stream, Dict], None, None]:
     logging.info(f"Reading travel times from {ttimes_directory}")
     logging.info(f"Reading templates from {templates_directory}")
     file_regex = re.compile(r'(?P<template_number>\d+).mseed')
@@ -99,14 +98,14 @@ def find_trace(stream: Stream, trace_id: str):
             return trace
 
 
-def correlate_trace(continuous: Trace, template: Trace, delay: float, atol: float, stream=nullcontext()) -> Trace:
+def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nullcontext()) -> Trace:
     header = {"network": continuous.stats.network,
               "station": continuous.stats.station,
               "channel": continuous.stats.channel,
               "starttime": continuous.stats.starttime,
               "sampling_rate": continuous.stats.sampling_rate}
     with stream:
-        correlation = correlate_data(continuous.data, template.data, atol)
+        correlation = correlate_data(continuous.data, template.data)
     trace = Trace(data=correlation, header=header)
 
     starttime = continuous.stats.starttime + delay
@@ -115,7 +114,7 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, atol: floa
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray, atol: float) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
     data = xp.asarray(data)
     template = xp.asarray(template)
     template -= xp.mean(template)
@@ -133,8 +132,6 @@ def correlate_data(data: np.ndarray, template: np.ndarray, atol: float) -> np.nd
     xp.sqrt(norm, out=norm)
     correlation[mask] = 0.0
     correlation /= norm
-    mask = correlation > 1 + atol
-    correlation[mask] = 0.0
     if xp == cupy:
         # noinspection PyUnresolvedReferences
         return cupy.asnumpy(correlation, stream=cupy.cuda.get_current_stream())
@@ -210,77 +207,76 @@ def read_zmap(catalog_path):
                               'depth',
                               'hour',
                               'minute',
-                              'second'])
+                              'second'],
+                       parse_dates={'date': ['year', 'month', 'day', 'hour', 'minute', 'second']})
+    dates = pd.to_datetime(zmap['date'], format='%Y %m %d %H %M %S.%f', utc=True)
+    zmap['timestamp'] = dates.map(lambda t: t.timestamp())
+    zmap.drop('date', axis=1, inplace=True)
     return zmap
 
 
-def clean(event, corr_atol, min_stations, corr_threshold):
+def fix_event(event, corr_atol, min_stations, corr_threshold):
     event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + corr_atol, event['channels']))
-    num_stations = len({station for station, _ in map(lambda ch: ch['id'].split('..'), event['channels'])})
-    correlation = sum(ch['correlation'] for ch in event['channels']) / len(event['channels'])
-    if num_stations >= min_stations and correlation >= corr_threshold:
+    event['num_stations'] = len({station for station, _ in map(lambda ch: ch['id'].split('..'), event['channels'])})
+    event['num_channels'] = len(event['channels'])
+    event['correlation_mean'] = sum(ch['correlation'] for ch in event['channels']) / event['num_channels']
+    if event['num_stations'] >= min_stations and event['correlation_mean'] >= corr_threshold:
         return event
 
 
-def make_record(event, zmap, network_path, ttimes_directory):
-    network = read_network(network_path)
+def make_record(event, zmap, ttimes_directory):
     record = {}
     for key in ["template", "timestamp", "dmad"]:
         record[key] = event[key]
 
     template = event['template']
-    for key in ["latitude", "longitude", "depth", "magnitude"]:
-        record[key] = zmap[key][template]
+    for key in zmap.keys():
+        record["template_" + key] = zmap.loc[template, key]
 
-    channels = {channel['id']: channel for channel in event['channels']}
-    for channel_name in network:
-        if channel_name in channels:
-            record[f"{channel_name}_ttime"] = read_ttimes(ttimes_directory, template)[channel_name]
-            for key in ['correlation', 'shift', 'magnitude']:
-                record[f"{channel_name}_{key}"] = channels[channel_name][key]
-        else:
-            record[f"{channel_name}_ttime"] = nan
-            for key in ['height', 'correlation', 'shift', 'magnitude']:
-                record[f"{channel_name}_{key}"] = nan
-
+    channels = event['channels']
+    for channel in channels:
+        channel_name = channel['id']
+        record[f"{channel_name}_ttime"] = read_ttimes(ttimes_directory, template)[channel_name]
+        for key in channel.keys():
+            if key != 'id':
+                record[f"{channel_name}_{key}"] = channel[key]
+    record.update({'num_stations': event['num_stations'], 'num_channels': event['num_channels'],
+                   'correlation_mean': event['correlation_mean']})
     return record
 
 
-@lru_cache
-def read_network(network_path):
-    network = set()
-    logging.debug(f"Reading {network_path}")
-    with open(network_path, "r") as network_file:
-        while line := network_file.readline():
-            line = line.rstrip('\n')
-            network_name, station, channel = line.split('.')
-            trace_id = f"{network_name}.{station}..{channel}"
-            network.add(trace_id)
-    return network
-
-
-def make_legacy_record(event, zmap, threshold, mag_relative_threshold):
-    template = event['template']
-    channels = event['channels']
-    template_magnitudes = zmap['magnitude']
-    num_channels = sum(1 for channel in channels if channel['correlation'] > threshold)
-    timestamp = UTCDateTime(event['timestamp'])
-    height = sum(channel['height'] for channel in channels) / len(channels)
-    correlation = sum(channel['correlation'] for channel in channels) / len(channels)
-    template_magnitude = template_magnitudes[template]
-    magnitude = estimate_magnitude(template_magnitude, [channel['magnitude'] for channel in channels],
+def make_legacy_record(record, corr_threshold, mag_relative_threshold):
+    channels = channels_from_record(record)
+    num_channels_above = sum(1 for channel in channels if channel['correlation'] > corr_threshold)
+    magnitude = estimate_magnitude(record['template_magnitude'], [channel['magnitude'] for channel in channels],
                                    mag_relative_threshold)
-    dmad = event['dmad']
-    record = deepcopy(event)
-    record.update({'datetime': timestamp, 'height': height, 'correlation': correlation,
-                   'magnitude': magnitude, 'template_magnitude': template_magnitude,
-                   'channels': channels, 'num_channels': num_channels,
+    height = sum(channel['height'] for channel in channels) / len(channels)
+    correlation = record['correlation_mean']
+    dmad = record['dmad']
+    record.update({'height': height, 'correlation': correlation,
+                   'magnitude': magnitude, 'channels': channels, 'num_channels_above': num_channels_above,
                    'crt_pre': inf if dmad == 0.0 else height / dmad,
                    'crt_post': inf if dmad == 0.0 else correlation / dmad})
     for name, ref in [('30%', 0.3), ('50%', 0.5), ('70%', 0.7), ('90%', 0.9)]:
         record[name] = sum(1 for channel in channels if channel['correlation'] > ref)
 
     return record
+
+
+def channels_from_record(record):
+    features = ['magnitude', 'height', 'correlation', 'shift']
+    channels = dict()
+    for key, value in record.items():
+        if any(key.endswith('_' + feature_name) for feature_name in features):
+            channel_id, feature = key.split('_')
+            if channel_id == 'template':
+                continue
+            elif channel_id in channels:
+                channels[channel_id][feature] = value
+            else:
+                channels[channel_id] = {feature: value}
+    return [channel_data | {'id': channel_id} for channel_id, channel_data in channels.items()
+            if np.isfinite(channel_data['correlation'])]
 
 
 def format_stats(event):
@@ -290,8 +286,10 @@ def format_stats(event):
         height, correlation, shift = trace['height'], trace['correlation'], trace['shift']
         line += f"{network}.{station} {channel} {height:.12f} {correlation:.12f} {shift} " \
                 f"{event['template_magnitude'] + trace['magnitude']:.12f}\n"
-    line += f"{event['datetime'].strftime('%y%m%d')} {event['template']} ? {event['datetime'].isoformat()} " \
-            f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} {event['num_channels']} {event['dmad']:.3f} " \
+    line += f"{event['date'].strftime('%y%m%d')} {event['template']} ? " \
+            f"{event['date'].strftime('%Y-%m-%dT%H:%M:%S.%f')} " \
+            f"{event['magnitude']:.2f} {event['template_magnitude']:.2f} " \
+            f"{event['num_channels_above']} {event['dmad']:.3f} " \
             f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
             f"{event['30%']} {event['50%']} {event['70%']} {event['90%']}\n"
 
@@ -299,40 +297,44 @@ def format_stats(event):
 
 
 def format_cat(event):
-    return f"{event['template']} {event['datetime'].isoformat()} {event['magnitude']:.2f} " \
+    return f"{event['template']} {event['date'].strftime('%Y-%m-%dT%H:%M:%S.%f')} {event['magnitude']:.2f} " \
            f"{event['correlation']:.3f} {event['crt_post']:.3f} {event['height']:.3f} {event['crt_pre']:.3f} " \
-           f"{event['num_channels']}\n"
+           f"{event['num_channels_above']}\n"
 
 
-def format_jsonline(event):
-    line_data = {}
-    for key, value in event.items():
-        if key in ["template", "timestamp", "dmad"]:
-            line_data[key] = value
-    channels = []
-    for channel in event["channels"]:
-        new_channel = {}
-        for key, value in channel.items():
-            if key in ["id", "height", "correlation", "magnitude", "shift"]:
-                new_channel[key] = value
-        channels.append(new_channel)
-    line_data["channels"] = channels
-    return json.dumps(line_data, cls=NumpyEncoder) + '\n'
-
-
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (np.bool_)):
-            return bool(obj)
-        elif isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.complexfloating):
-            return {'real': obj.real, 'imag': obj.imag}
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, np.void):
-            return None
+def find_records(catalogue, selection, dt):
+    try:
+        indices = []
+        for row in selection.itertuples():
+            start, stop = row.date - dt, row.date + dt
+            candidates = catalogue[(catalogue.index > start) &
+                                   (catalogue.index < stop) &
+                                   (catalogue['template'] == row.template)]
+            if not candidates.empty:
+                indices.append(candidates['correlation_mean'].idxmax())
+        if indices:
+            return catalogue.loc[indices]
         else:
-            return json.JSONEncoder.default(self, obj)
+            logging.debug(f"No events found in {catalogue}")
+    except BaseException as exception:
+        logging.debug(f"An error occurred while processing {catalogue}", exc_info=exception)
+
+
+def filenames_from_dates(dates, root=Path('.'), extension='.parquet'):
+    filenames = set()
+    for date in dates:
+        date_string = date.strftime("%Y-%m-%d")
+        filename = root / (date_string + extension)
+        if filename.exists():
+            filenames.add(filename)
+        if date.hour == 0:
+            daybefore_string = (date - timedelta(days=1)).strftime("%Y-%m-%d")
+            filename = root / (daybefore_string + extension)
+            if filename.exists():
+                filenames.add(filename)
+        elif date.hour == 23:
+            dayafter_string = (date + timedelta(days=1)).strftime("%Y-%m-%d")
+            filename = root / (dayafter_string + extension)
+            if filename.exists():
+                filenames.add(filename)
+    return list(filenames)

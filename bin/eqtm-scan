@@ -3,26 +3,22 @@ import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
-from itertools import repeat
+from importlib import resources
 from pathlib import Path
 from time import perf_counter as timer
 
 import numpy as np
+from fastavro import writer
+from fastavro.schema import load_schema
 from obspy import Stream, UTCDateTime
 from psutil import cpu_count
 from scipy.signal import find_peaks
-from scipy.signal._peak_finding_utils import _select_by_peak_distance
 from tqdm import tqdm
 
 try:
     import cupy
 except ImportError:
     cupy = None
-
-try:
-    import fastavro
-except ImportError:
-    fastavro = None
 
 import correlation_detector as cd
 
@@ -31,16 +27,12 @@ parser.add_argument("data", help="Continuous data path, location of the mseed fi
 parser.add_argument("travel_times", help="Path to travel times directory", type=Path)
 parser.add_argument("templates", help="Path to templates directory", type=Path)
 parser.add_argument("output", help="Output file path, location of the jsonl/avro file", type=Path)
-parser.add_argument("--min_stations", help="Minimum number of channels", type=int, default=3)
 parser.add_argument("--max_channels", help="Maximum number of channels", type=int, default=18)
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
-parser.add_argument("--corr_atol", help="Absolute tolerance in normalized correlation calculations",
-                    type=float, default=1e-4)
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.4)
 parser.add_argument("--distance", help="Scale factor of mean correlation peak distance", type=float, default=2.0)
 parser.add_argument("--maxshift", help="Maximum lag in samples", type=int, default=6)
-parser.add_argument("--noavro", help="Use text output", default=False, action='store_true')
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
                     default='snappy')
 parser.add_argument("--log", help="Log level", default='info')
@@ -58,34 +50,14 @@ if cupy:
 else:
     streams = [nullcontext() for _ in range(cli_args.max_channels)]
 
-if (not cli_args.noavro) and fastavro:
-    writer = fastavro.writer
-    load_schema = fastavro.schema.load_schema
-
-    from importlib import resources
-
-    with resources.path('correlation_detector', 'event.avsc') as schema_path:
-        schema = load_schema(schema_path)
-
-    output = cli_args.output.with_suffix('.avro')
-    mode = 'wb'
-else:
-    if not fastavro:
-        logging.warning("Fastavro is not installed, falling back to jsonl")
-
-    schema = None
-
-    def writer(file, _, buffer, codec=None):
-        file.writelines(cd.format_jsonline(event) for event in buffer)
-
-    output = cli_args.output.with_suffix('.jsonl')
-    mode = 'w'
+with resources.path('correlation_detector', 'event.avsc') as schema_path:
+    schema = load_schema(schema_path)
 
 if __name__ == '__main__':
     logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
     data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
-    templates = cd.read_templates(cli_args.templates, cli_args.travel_times)
+    templates = cd.read_templatesdata(cli_args.templates, cli_args.travel_times)
     if cli_args.progress:
         templates = tqdm(templates, total=len(list(cli_args.travel_times.glob('*.ttimes'))))
     events_buffer = []
@@ -95,10 +67,7 @@ if __name__ == '__main__':
             try:
                 mystery_shift = 2 * min(ttimes.values())  # mystery of faith
                 data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
-                if len({(trace.stats.network, trace.stats.station) for trace in data}) < cli_args.min_stations:
-                    continue
-                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(),
-                                                      repeat(cli_args.corr_atol), streams))
+                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
                 signal = sum(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.maxshift), correlations))
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(signal, height=cli_args.threshold * len(correlations),
@@ -130,9 +99,10 @@ if __name__ == '__main__':
                     raise exception
                 else:
                     logging.warning(f"An error occurred while processing template {index}", exc_info=exception)
+    output = cli_args.output.with_suffix('.avro')
     if output.exists():
         logging.info(f"{output} already exists, it will be overwritten")
-    with output.open(mode) as file:
+    with output.open('wb') as file:
         logging.info(f"Writing to {file.name}")
         writer(file, schema, cd.flatten(events_buffer), codec=cli_args.compression)
     toc = timer()

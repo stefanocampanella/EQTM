@@ -1,0 +1,48 @@
+#! /usr/bin/env python
+import argparse
+import logging
+from pathlib import Path
+from time import perf_counter as timer
+
+import pandas as pd
+from joblib import load
+
+parser = argparse.ArgumentParser(prog=__file__)
+parser.add_argument("model", help="Path to the joblib dump of the model", type=Path)
+parser.add_argument("input", help="Input file path", type=Path)
+parser.add_argument("label", help="Label to filter in", type=int, default=1)
+parser.add_argument("output", help="Output file path", type=Path)
+parser.add_argument("--label", help="Label to filter in", type=int, default=1)
+parser.add_argument("--threshold", help="Probability threshold", type=float, default=0.5)
+parser.add_argument("--prob", help="Include probability in the output", default=False, action='store_true')
+
+cli_args = parser.parse_args()
+
+if __name__ == '__main__':
+    logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
+    tic = timer()
+    logging.info(f"Reading from {cli_args.input}")
+    catalogue = pd.read_parquet(cli_args.input)
+    logging.info(f"Found {len(catalogue)} {'events' if len(catalogue) > 1 else 'event'}")
+    model = load(cli_args.model)
+    feature_names = model.get_booster().feature_names
+    channels_features = [feature + '_' + moment
+                         for feature in ['correlation', 'magnitude', 'height', 'shift', 'ttime']
+                         for moment in ['mean', 'var', 'skew', 'kurtosis']
+                         if feature + '_' + moment in feature_names]
+    for feature in channels_features:
+        if feature != 'correlation_mean':
+            feature_name, moment = feature.split('_')
+            feature_columns = list(filter(lambda col: col.endswith('_' + feature_name), catalogue.columns))
+            catalogue[feature_name + '_' + moment] = getattr(catalogue[feature_columns], moment)(axis=1)
+    catalogue['probability'] = model.predict_proba(catalogue[feature_names])[:, cli_args.label]
+    catalogue = catalogue[catalogue['probability'] > cli_args.threshold]
+    if not cli_args.prob:
+        catalogue.drop('probability', axis=1, inplace=True)
+    output = cli_args.output.with_suffix('.parquet')
+    if output.exists():
+        logging.info(f"{output} already exists, it will be overwritten")
+    logging.info(f"Writing {len(catalogue)} {'events' if len(catalogue) > 1 else 'event'} to {output}")
+    catalogue.to_parquet(cli_args.output.with_suffix('.parquet'), engine='fastparquet', index=True)
+    toc = timer()
+    logging.info(f"Elapsed time: {toc - tic:.2f} seconds")
