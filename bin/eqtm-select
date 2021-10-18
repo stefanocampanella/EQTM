@@ -38,7 +38,8 @@ if __name__ == '__main__':
     with ProcessPoolExecutor() as pool:
         catalogue = pd.concat(filter(lambda df: isinstance(df, pd.DataFrame) and not df.empty,
                                      pool.map(cd.find_records,
-                                              map(pd.read_parquet, filenames), repeat(selection), repeat(dt))))
+                                              map(lambda fn: pd.read_parquet(fn, engine='fastparquet'), filenames),
+                                              repeat(selection), repeat(dt))))
     output = cli_args.output.with_suffix('.parquet')
     if output.exists():
         logging.info(f"{output} already exists, it will be overwritten")

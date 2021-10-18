@@ -21,7 +21,7 @@ if __name__ == '__main__':
     logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
     logging.info(f"Reading from {cli_args.input}")
-    catalogue = pd.read_parquet(cli_args.input)
+    catalogue = pd.read_parquet(cli_args.input, engine='fastparquet')
     logging.info(f"Found {len(catalogue)} {'events' if len(catalogue) > 1 else 'event'}")
     model = load(cli_args.model)
     feature_names = model.get_booster().feature_names
