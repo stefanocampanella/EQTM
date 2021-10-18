@@ -13,10 +13,10 @@ from fastavro.schema import load_schema
 import correlation_detector as cd
 
 parser = argparse.ArgumentParser(prog=__file__)
-parser.add_argument("list", help="Path to event catalog, location of the zmap file", type=Path)
-parser.add_argument("input", help="Input file path, location of the avro file", type=Path)
-parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
-parser.add_argument("--time_unit", help="Tolerance in seconds", type=str, default='1ms')
+parser.add_argument("list", help="List of selected events (in cat or csv format)", type=Path)
+parser.add_argument("input", help="Input file path, location of the Parquet file", type=Path)
+parser.add_argument("output", help="Output file path, stem of the output Parquet file", type=Path)
+parser.add_argument("--time_unit", help="Tolerance between list and input timestamps", type=str, default='1ms')
 parser.add_argument("--log", help="Log level", default='info')
 
 cli_args = parser.parse_args()

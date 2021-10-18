@@ -8,7 +8,7 @@ import pandas as pd
 from pickle import load
 
 parser = argparse.ArgumentParser(prog=__file__)
-parser.add_argument("model", help="Path to the joblib dump of the model", type=Path)
+parser.add_argument("model", help="Path to the Pickle dump of the model, features names pair", type=Path)
 parser.add_argument("input", help="Input file path", type=Path)
 parser.add_argument("output", help="Output file path", type=Path)
 parser.add_argument("--label", help="Label to filter in", type=int, default=1)

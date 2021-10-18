@@ -16,13 +16,13 @@ import correlation_detector as cd
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("catalog", help="Path to event catalog, location of the zmap file", type=Path)
 parser.add_argument("ttimes", help="Path to travel times directory", type=Path)
-parser.add_argument("input", help="Input file path, location of the jsonl/avro file", type=Path)
-parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
+parser.add_argument("input", help="Input file path, location of the Avro file", type=Path)
+parser.add_argument("output", help="Output file path, stem of the Parquet file", type=Path)
 parser.add_argument("--distance", help="Minimum distance between events in seconds", type=float, default=6.0)
 parser.add_argument("--time_unit", help="Precision to use in timestamps rounding", type=str, default='us')
-parser.add_argument("--corr_atol", help="Absolute tolerance in normalized correlation to consider error",
+parser.add_argument("--corr_atol", help="Absolute tolerance above which to consider correlations as errors",
                     type=float, default=1e-3)
-parser.add_argument("--min_stations", help="Minimum number of channels", type=int, default=3)
+parser.add_argument("--min_stations", help="Minimum number of stations", type=int, default=3)
 parser.add_argument("--corr_threshold", help="Mean correlation threshold", type=float, default=0.35)
 parser.add_argument("--log", help="Log level", default='info')
 
