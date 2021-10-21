@@ -23,7 +23,7 @@ parser.add_argument("--time_unit", help="Precision to use in timestamps rounding
 parser.add_argument("--corr_atol", help="Absolute tolerance above which to consider correlations as errors",
                     type=float, default=1e-3)
 parser.add_argument("--min_stations", help="Minimum number of stations", type=int, default=3)
-parser.add_argument("--corr_threshold", help="Mean correlation threshold", type=float, default=0.35)
+parser.add_argument("--corr_threshold", help="Mean correlation threshold", type=float, default=0.4)
 parser.add_argument("--log", help="Log level", default='info')
 
 cli_args = parser.parse_args()
