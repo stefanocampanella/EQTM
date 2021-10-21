@@ -4,7 +4,6 @@ channels:
   - defaults
 dependencies:
   - python
-  - pip
   - numpy
   - scipy
   - pandas
@@ -13,12 +12,15 @@ dependencies:
   - jupyterlab
   - tqdm
   - psutil
-  - lxml
   - fastavro
   - python-snappy
   - numba
   - scikit-learn
   - xgboost
+  - optuna
   - fastparquet
-  - pip:
-    - obspy
+  - shap
+  - nodejs
+  - ipywidgets
+  - plotly
+  - obspy
