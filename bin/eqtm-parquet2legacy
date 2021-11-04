@@ -28,7 +28,6 @@ if __name__ == '__main__':
     logging.info(f"Reading from {cli_args.input.resolve()}")
     catalogue = pd.read_parquet(cli_args.input, engine='fastparquet')
     catalogue.reset_index(inplace=True)
-    logging.info(f"Found {len(catalogue)} {'events' if len(catalogue) > 1 else 'event'}")
     records = [cd.make_legacy_record(event, cli_args.corr_threshold, cli_args.mag_threshold)
                for event in catalogue.to_dict(orient='records')]
     if cli_args.sort:
