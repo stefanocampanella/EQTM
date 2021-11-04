@@ -7,7 +7,7 @@ from functools import lru_cache
 from math import log10, nan, inf
 from pathlib import Path
 from typing import Tuple, Dict, Generator
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 import bottleneck as bn
 import numpy as np
@@ -195,7 +195,6 @@ def flatten(events_buffer):
 
 
 def read_zmap(catalog_path):
-    logging.info(f"Reading catalog from {catalog_path}")
     zmap = pd.read_csv(catalog_path,
                        sep=r'\s+',
                        usecols=range(10),
@@ -209,16 +208,16 @@ def read_zmap(catalog_path):
                               'hour',
                               'minute',
                               'second'],
-                       parse_dates={'date': ['year', 'month', 'day', 'hour', 'minute', 'second']})
-    dates = pd.to_datetime(zmap['date'], format='%Y %m %d %H %M %S.%f', utc=True)
-    zmap['timestamp'] = dates.map(lambda t: t.timestamp())
+                       parse_dates={'date': ['year', 'month', 'day', 'hour', 'minute', 'second']},
+                       date_parser=lambda datestr: pd.to_datetime(datestr, format='%Y %m %d %H %M %S.%f', utc=True))
+    zmap['timestamp'] = zmap.date.map(lambda t: t.timestamp())
     zmap.drop('date', axis=1, inplace=True)
     return zmap
 
 
 def fix_correlations(event, corr_atol):
     fixed_event = deepcopy(event)
-    fixed_event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + corr_atol, event['channels']))
+    fixed_event['channels'] = list(filter(lambda channel: channel['correlation'] <= 1 + corr_atol, event['channels']))
     return fixed_event
 
 

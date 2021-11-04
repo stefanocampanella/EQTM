@@ -6,11 +6,9 @@ from itertools import repeat
 from pathlib import Path
 from time import perf_counter as timer
 
-import numpy as np
 import pandas as pd
 from fastavro import reader
 from fastavro.schema import load_schema
-from scipy.signal._peak_finding_utils import _select_by_peak_distance
 
 import correlation_detector as cd
 
@@ -18,11 +16,10 @@ parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("catalog", help="Path to event catalog, location of the zmap file", type=Path)
 parser.add_argument("ttimes", help="Path to travel times directory", type=Path)
 parser.add_argument("input", help="Input file path, location of the Avro file", type=Path)
-parser.add_argument("distance", help="Minimum distance between events in seconds", type=float)
 parser.add_argument("output", help="Output file path, stem of the Parquet file", type=Path)
-parser.add_argument("--time_unit", help="Precision to use in timestamps rounding", type=str, default='us')
 parser.add_argument("--corr_atol", help="Absolute tolerance above which to consider correlations as errors",
                     type=float, default=1e-3)
+parser.add_argument("--query", help="Optional query to select data from DataFrame", type=str, default=None)
 parser.add_argument("--log", help="Log level", default='info')
 
 cli_args = parser.parse_args()
@@ -34,29 +31,25 @@ with resources.path('correlation_detector', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)
 
 if __name__ == '__main__':
-    logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
+    logging.debug(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
-    logging.info(f"Reading from {cli_args.input}")
+    logging.info(f"Reading from {cli_args.input.resolve()}")
     with cli_args.input.open('rb') as file:
         events_buffer = sorted(map(cd.fix_correlations, reader(file, reader_schema=schema), repeat(cli_args.corr_atol)),
                                key=lambda event: event['timestamp'])
     logging.info(f"Found {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'}")
-    if cli_args.distance > 0:
-        time_precision = pd.to_datetime(1, unit=cli_args.time_unit).timestamp()
-        timestamps = np.fromiter((event['timestamp'] / time_precision for event in events_buffer), dtype=int)
-        correlations = np.fromiter((sum(ch['correlation'] for ch in event['channels']) / len(event['channels'])
-                                    for event in events_buffer), dtype=float)
-        to_keep = _select_by_peak_distance(timestamps, correlations, cli_args.distance / time_precision)
-        events_buffer = [event for (event, is_to_keep) in zip(events_buffer, to_keep) if is_to_keep]
     zmap = cd.read_zmap(cli_args.catalog)
     records = map(lambda event: cd.make_record(event, zmap, cli_args.ttimes), events_buffer)
     catalogue = pd.DataFrame.from_records(records)
     catalogue['date'] = pd.to_datetime(catalogue['timestamp'], unit='s', utc=True)
     catalogue.set_index('date', inplace=True, verify_integrity=True)
+    if cli_args.query:
+        logging.info(f"Querying: \"{cli_args.query}\"")
+        catalogue.query(cli_args.query, inplace=True)
     output = cli_args.output.with_suffix('.parquet')
     if output.exists():
         logging.info(f"{output} already exists, it will be overwritten")
-    logging.info(f"Writing {len(catalogue)} {'events' if len(catalogue) > 1 else 'event'} to {output}")
+    logging.info(f"Writing {len(catalogue)} {'events' if len(catalogue) > 1 else 'event'} to {output.resolve()}")
     catalogue.to_parquet(output, engine='fastparquet', index=True)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds")

@@ -29,7 +29,7 @@ with resources.path('correlation_detector', 'event.avsc') as schema_path:
 
 
 if __name__ == '__main__':
-    logging.info(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
+    logging.debug(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
     selection = pd.read_csv(cli_args.list, usecols=[0, 1], names=['template', 'date'], delimiter=' ')
     selection['date'] = pd.to_datetime(selection['date'], utc=True)
