@@ -42,7 +42,8 @@ if __name__ == '__main__':
     records = map(lambda event: cd.make_record(event, zmap, cli_args.ttimes), events_buffer)
     catalogue = pd.DataFrame.from_records(records)
     catalogue['date'] = pd.to_datetime(catalogue['timestamp'], unit='s', utc=True)
-    catalogue.set_index('date', inplace=True, verify_integrity=True)
+    catalogue.drop_duplicates(subset=['template', 'date'], keep='first')
+    catalogue.set_index('date', inplace=True)
     if cli_args.query:
         logging.info(f"Querying: \"{cli_args.query}\"")
         catalogue.query(cli_args.query, inplace=True)
