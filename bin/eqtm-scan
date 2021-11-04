@@ -84,7 +84,7 @@ if __name__ == '__main__':
                     channels = []
                     for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
                         magnitude = cd.relative_magnitude(data_trace, template_trace, template_shift)
-                        height, correlation, shift = cd.fix_correlation(correlation_trace, peak, cli_args.maxshift)
+                        height, correlation, shift = cd.max_correlation(correlation_trace, peak, cli_args.maxshift)
                         channels.append(
                             {'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})

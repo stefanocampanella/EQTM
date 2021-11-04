@@ -2,6 +2,7 @@ import logging
 import re
 from collections import OrderedDict
 from contextlib import nullcontext
+from copy import deepcopy
 from functools import lru_cache
 from math import log10, nan, inf
 from pathlib import Path
@@ -154,7 +155,7 @@ def max_filter(data, pixels):
     return bn.move_max(data, 2 * pixels + 1)[2 * pixels:]
 
 
-def fix_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
+def max_correlation(trace: Trace, peak: int, tolerance: int) -> Tuple[float, float, int]:
     lower = max(peak - tolerance, 0)
     upper = min(peak + tolerance + 1, len(trace.data))
     shift = np.argmax(trace.data[lower:upper]) - tolerance
@@ -215,13 +216,10 @@ def read_zmap(catalog_path):
     return zmap
 
 
-def fix_event(event, corr_atol, min_stations, corr_threshold):
-    event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + corr_atol, event['channels']))
-    event['num_stations'] = len({station for station, _ in map(lambda ch: ch['id'].split('..'), event['channels'])})
-    event['num_channels'] = len(event['channels'])
-    event['correlation_mean'] = sum(ch['correlation'] for ch in event['channels']) / event['num_channels']
-    if event['num_stations'] >= min_stations and event['correlation_mean'] >= corr_threshold:
-        return event
+def fix_correlations(event, corr_atol):
+    fixed_event = deepcopy(event)
+    fixed_event['channels'] = list(filter(lambda ch: ch['correlation'] <= 1 + corr_atol, event['channels']))
+    return fixed_event
 
 
 def make_record(event, zmap, ttimes_directory):
@@ -240,8 +238,12 @@ def make_record(event, zmap, ttimes_directory):
         for key in channel.keys():
             if key != 'id':
                 record[f"{channel_name}_{key}"] = channel[key]
-    record.update({'num_stations': event['num_stations'], 'num_channels': event['num_channels'],
-                   'correlation_mean': event['correlation_mean']})
+    num_stations = len({station for station, _ in map(lambda ch: ch['id'].split('..'), event['channels'])})
+    num_channels = len(event['channels'])
+    correlation_mean = sum(ch['correlation'] for ch in event['channels']) / num_channels
+    record.update({'num_stations': num_stations,
+                   'num_channels': num_channels,
+                   'correlation_mean': correlation_mean})
     return record
 
 

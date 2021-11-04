@@ -11,6 +11,7 @@ import correlation_detector as cd
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("input", help="Input file path, location of the Parquet file", type=Path)
 parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
+parser.add_argument("--query", help="Optional query to select data from DataFrame", type=str, default=None)
 parser.add_argument("--corr_threshold", help="Correlation threshold per channels", type=float, default=0.4)
 parser.add_argument("--mag_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
@@ -28,6 +29,8 @@ if __name__ == '__main__':
     logging.info(f"Reading from {cli_args.input}")
     catalogue = pd.read_parquet(cli_args.input, engine='fastparquet')
     catalogue.reset_index(inplace=True)
+    if cli_args.query:
+        catalogue.query(cli_args.query, inplace=True)
     records = [cd.make_legacy_record(event, cli_args.corr_threshold, cli_args.mag_threshold)
                for event in catalogue.to_dict(orient='records')]
     if cli_args.sort:
