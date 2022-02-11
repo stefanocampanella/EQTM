@@ -6,11 +6,16 @@ from time import perf_counter as timer
 
 import pandas as pd
 
+from scipy.signal._peak_finding_utils import _select_by_peak_distance
+
 import correlation_detector as cd
 
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("input", help="Input file path, location of the Parquet file", type=Path)
 parser.add_argument("output", help="Output file path, stem of the output cat and stats file", type=Path)
+parser.add_argument("--distance", help="Minimum distance between events in seconds", type=float, default=0.0)
+parser.add_argument("--time_unit", help="Precision to use in timestamps rounding", type=str, default='us')
+parser.add_argument("--query", help="Optional query to select data from DataFrame", type=str, default=None)
 parser.add_argument("--corr_threshold", help="Correlation threshold per channels", type=float, default=0.4)
 parser.add_argument("--mag_threshold", help="Scale factor of channel magnitude MAD threshold", type=float,
                     default=2.0)
@@ -27,6 +32,16 @@ if __name__ == '__main__':
     tic = timer()
     logging.info(f"Reading from {cli_args.input.resolve()}")
     catalogue = pd.read_parquet(cli_args.input, engine='fastparquet')
+    if cli_args.query:
+        logging.info(f"Querying: \"{cli_args.query}\"")
+        catalogue.query(cli_args.query, inplace=True)
+    if cli_args.distance > 0.0:
+        logging.info(f"Selecting events at least {cli_args.distance} seconds apart")
+        time_precision = pd.to_datetime(1, unit=cli_args.time_unit).timestamp()
+        timestamps = (catalogue['timestamp'] / time_precision).astype(int)
+        to_keep = _select_by_peak_distance(timestamps.to_numpy(), catalogue['correlation_mean'].to_numpy(),
+                                           cli_args.distance / time_precision)
+        catalogue = catalogue[to_keep]
     catalogue.reset_index(inplace=True)
     records = [cd.make_legacy_record(event, cli_args.corr_threshold, cli_args.mag_threshold)
                for event in catalogue.to_dict(orient='records')]

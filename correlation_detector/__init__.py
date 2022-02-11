@@ -3,11 +3,11 @@ import re
 from collections import OrderedDict
 from contextlib import nullcontext
 from copy import deepcopy
+from datetime import timedelta
 from functools import lru_cache
 from math import log10, nan, inf
 from pathlib import Path
 from typing import Tuple, Dict, Generator
-from datetime import timedelta, datetime, timezone
 
 import bottleneck as bn
 import numpy as np

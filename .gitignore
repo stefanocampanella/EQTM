@@ -1,3 +1,6 @@
+build
+dist
+correlation_detector.egg-info
 .env
 .idea
 .ipynb_checkpoints
@@ -6,3 +9,6 @@ __pycache__
 data/**/*.mseed
 data/**/*.ttimes
 data/**/*.zmap
+data/**/*.parquet
+data/**/*.avro
+data/RISE
