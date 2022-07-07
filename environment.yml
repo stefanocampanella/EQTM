@@ -4,23 +4,16 @@ channels:
   - defaults
 dependencies:
   - python
+  - pip
   - numpy
   - scipy
   - pandas
-  - matplotlib
   - bottleneck
-  - jupyterlab
-  - tqdm
-  - psutil
   - fastavro
   - python-snappy
-  - numba
-  - scikit-learn
-  - xgboost
-  - optuna
   - fastparquet
-  - shap
-  - nodejs
-  - ipywidgets
-  - plotly
-  - obspy
+  - tqdm
+  - psutil
+  - pip:
+    - obspy
+    - cupy

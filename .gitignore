@@ -1,14 +1,7 @@
-build
-dist
-correlation_detector.egg-info
+data/**
+__pycache__
 .env
+.conda_env
 .idea
 .ipynb_checkpoints
 .DS_Store
-__pycache__
-data/**/*.mseed
-data/**/*.ttimes
-data/**/*.zmap
-data/**/*.parquet
-data/**/*.avro
-data/RISE

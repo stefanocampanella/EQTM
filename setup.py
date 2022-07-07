@@ -13,7 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/stefanocampanella/correlation-detector",
     packages=setuptools.find_packages(),
-    scripts=['bin/eqtm-scan', 'bin/eqtm-postprocess', 'bin/eqtm-parquet2legacy', 'bin/eqtm-filter', 'bin/eqtm-select'],
+    scripts=['bin/eqtm-scan', 'bin/eqtm-avro2parquet', 'bin/eqtm-parquet2legacy', 'bin/eqtm-filter', 'bin/eqtm-select'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
