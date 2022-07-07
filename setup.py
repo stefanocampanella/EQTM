@@ -27,9 +27,9 @@ setuptools.setup(
         'bottleneck',
         'fastavro',
         'python-snappy',
-        'fastparquet'
+        'fastparquet',
         'tqdm',
-        'psutil',
+        'psutil'
     ],
     extras_require={'GPU acceleration': ['cupy']},
     include_package_data=True,
