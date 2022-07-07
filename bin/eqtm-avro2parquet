@@ -1,16 +1,15 @@
 #! /usr/bin/env python
 import argparse
 import logging
+import pandas as pd
+from fastavro import reader
+from fastavro.schema import load_schema
 from importlib import resources
 from itertools import repeat
 from pathlib import Path
 from time import perf_counter as timer
 
-import pandas as pd
-from fastavro import reader
-from fastavro.schema import load_schema
-
-import correlation_detector as cd
+import eqtm
 
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("catalog", help="Path to event catalog, location of the zmap file", type=Path)
@@ -26,7 +25,7 @@ cli_args = parser.parse_args()
 logging.basicConfig(format='%(levelname)s-%(asctime)s: %(message)s',
                     level=getattr(logging, cli_args.log.upper()))
 
-with resources.path('correlation_detector', 'event.avsc') as schema_path:
+with resources.path('eqtm', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)
 
 if __name__ == '__main__':
@@ -34,11 +33,12 @@ if __name__ == '__main__':
     tic = timer()
     logging.info(f"Reading from {cli_args.input.resolve()}")
     with cli_args.input.open('rb') as file:
-        events_buffer = sorted(map(cd.fix_correlations, reader(file, reader_schema=schema), repeat(cli_args.corr_atol)),
-                               key=lambda event: event['timestamp'])
+        events_buffer = sorted(
+            map(eqtm.fix_correlations, reader(file, reader_schema=schema), repeat(cli_args.corr_atol)),
+            key=lambda event: event['timestamp'])
     logging.info(f"Found {len(events_buffer)} {'events' if len(events_buffer) > 1 else 'event'}")
-    zmap = cd.read_zmap(cli_args.catalog)
-    records = map(lambda event: cd.make_record(event, zmap, cli_args.ttimes), events_buffer)
+    zmap = eqtm.read_zmap(cli_args.catalog)
+    records = map(lambda event: eqtm.make_record(event, zmap, cli_args.ttimes), events_buffer)
     catalogue = pd.DataFrame.from_records(records)
     catalogue['date'] = pd.to_datetime(catalogue['timestamp'], unit='s', utc=True)
     catalogue.drop_duplicates(subset=['date'], keep=False, inplace=True)

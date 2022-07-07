@@ -1,1 +1,1 @@
-include correlation_detector/event.avsc
+include eqtm/event.avsc

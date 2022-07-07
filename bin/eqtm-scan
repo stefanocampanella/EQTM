@@ -1,18 +1,17 @@
 #! /usr/bin/env python
 import argparse
 import logging
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
-from importlib import resources
-from pathlib import Path
-from time import perf_counter as timer
-
-import numpy as np
 from fastavro import writer
 from fastavro.schema import load_schema
+from importlib import resources
 from obspy import Stream, UTCDateTime
+from pathlib import Path
 from psutil import cpu_count
 from scipy.signal import find_peaks
+from time import perf_counter as timer
 from tqdm import tqdm
 
 try:
@@ -20,7 +19,7 @@ try:
 except ImportError:
     cupy = None
 
-import correlation_detector as cd
+import eqtm
 
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("data", help="Continuous data path, location of the mseed file", type=Path)
@@ -47,17 +46,18 @@ logging.basicConfig(format='%(process)s-%(levelname)s-%(asctime)s: %(message)s',
 if cupy:
     # noinspection PyUnresolvedReferences
     streams = [cupy.cuda.Stream() for _ in range(cli_args.max_channels)]
+    logging.info(f"CuPy detected, using GPU acceleration.")
 else:
     streams = [nullcontext() for _ in range(cli_args.max_channels)]
 
-with resources.path('correlation_detector', 'event.avsc') as schema_path:
+with resources.path('eqtm', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)
 
 if __name__ == '__main__':
     logging.debug(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
-    data_pool = cd.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
-    templates = cd.read_templatesdata(cli_args.templates, cli_args.travel_times)
+    data_pool = eqtm.read_data(cli_args.data, freqmin=cli_args.lowpass, freqmax=cli_args.highpass)
+    templates = eqtm.read_templatesdata(cli_args.templates, cli_args.travel_times)
     if cli_args.progress:
         templates = tqdm(templates, total=len(list(cli_args.travel_times.glob('*.ttimes'))))
     events_buffer = []
@@ -66,9 +66,9 @@ if __name__ == '__main__':
         for index, template, ttimes in templates:
             try:
                 mystery_shift = 2 * min(ttimes.values())  # mystery of faith
-                data, template, ttimes = cd.match_traces(data_pool, template, ttimes, cli_args.max_channels)
-                correlations = Stream(traces=pool.map(cd.correlate_trace, data, template, ttimes.values(), streams))
-                signal = sum(pool.map(lambda trace: cd.max_filter(trace.data, cli_args.maxshift), correlations))
+                data, template, ttimes = eqtm.match_traces(data_pool, template, ttimes, cli_args.max_channels)
+                correlations = Stream(traces=pool.map(eqtm.correlate_trace, data, template, ttimes.values(), streams))
+                signal = sum(pool.map(lambda trace: eqtm.max_filter(trace.data, cli_args.maxshift), correlations))
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(signal, height=cli_args.threshold * len(correlations),
                                       distance=cli_args.distance * template_length)
@@ -83,8 +83,8 @@ if __name__ == '__main__':
                     template_shift = event_date - template_reference
                     channels = []
                     for correlation_trace, data_trace, template_trace in zip(correlations, data, template):
-                        magnitude = cd.relative_magnitude(data_trace, template_trace, template_shift)
-                        height, correlation, shift = cd.max_correlation(correlation_trace, peak, cli_args.maxshift)
+                        magnitude = eqtm.relative_magnitude(data_trace, template_trace, template_shift)
+                        height, correlation, shift = eqtm.max_correlation(correlation_trace, peak, cli_args.maxshift)
                         channels.append(
                             {'id': correlation_trace.id, 'height': height, 'correlation': correlation, 'shift': shift,
                              'magnitude': magnitude})
@@ -104,6 +104,6 @@ if __name__ == '__main__':
         logging.info(f"{output} already exists, it will be overwritten")
     with output.open('wb') as file:
         logging.info(f"Writing to {output.resolve()}")
-        writer(file, schema, cd.flatten(events_buffer), codec=cli_args.compression)
+        writer(file, schema, eqtm.flatten(events_buffer), codec=cli_args.compression)
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds")

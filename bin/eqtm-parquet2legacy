@@ -1,14 +1,12 @@
 #! /usr/bin/env python
 import argparse
 import logging
+import pandas as pd
 from pathlib import Path
+from scipy.signal._peak_finding_utils import _select_by_peak_distance
 from time import perf_counter as timer
 
-import pandas as pd
-
-from scipy.signal._peak_finding_utils import _select_by_peak_distance
-
-import correlation_detector as cd
+import eqtm
 
 parser = argparse.ArgumentParser(prog=__file__)
 parser.add_argument("input", help="Input file path, location of the Parquet file", type=Path)
@@ -43,7 +41,7 @@ if __name__ == '__main__':
                                            cli_args.distance / time_precision)
         catalogue = catalogue[to_keep]
     catalogue.reset_index(inplace=True)
-    records = [cd.make_legacy_record(event, cli_args.corr_threshold, cli_args.mag_threshold)
+    records = [eqtm.make_legacy_record(event, cli_args.corr_threshold, cli_args.mag_threshold)
                for event in catalogue.to_dict(orient='records')]
     if cli_args.sort:
         records.sort(key=lambda event: (event['template'], event['timestamp']))
@@ -54,11 +52,11 @@ if __name__ == '__main__':
     if cat.exists():
         logging.info(f"{cat} already exists, it will be overwritten")
     with cat.open('w') as file:
-        file.writelines(map(cd.format_cat, records))
+        file.writelines(map(eqtm.format_cat, records))
     stats = cli_args.output.with_suffix('.stats')
     if stats.exists():
         logging.info(f"{stats} already exists, it will be overwritten")
     with stats.open('w') as file:
-        file.writelines(map(cd.format_stats, records))
+        file.writelines(map(eqtm.format_stats, records))
     toc = timer()
     logging.info(f"Elapsed time: {toc - tic:.2f} seconds")
