@@ -32,6 +32,8 @@ parser.add_argument("--highpass", help="Highpass filter frequency", type=float, 
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.4)
 parser.add_argument("--distance", help="Scale factor of mean correlation peak distance", type=float, default=1.0)
 parser.add_argument("--maxshift", help="Maximum lag in samples", type=int, default=6)
+parser.add_argument("--method", help="Compression algorithm to use", choices=['auto', 'direct', 'fft'],
+                    default='auto')
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
                     default='snappy')
 parser.add_argument("--log", help="Log level", default='info')
@@ -53,6 +55,9 @@ else:
 with resources.path('eqtm', 'event.avsc') as schema_path:
     schema = load_schema(schema_path)
 
+def correlate_trace(*args):
+    return eqtm.correlate_trace(*args, method=cli_args.method)
+
 if __name__ == '__main__':
     logging.debug(f"Running {parser.prog} with the following parameters: {vars(cli_args)}")
     tic = timer()
@@ -67,7 +72,7 @@ if __name__ == '__main__':
             try:
                 mystery_shift = 2 * min(ttimes.values())  # mystery of faith
                 data, template, ttimes = eqtm.match_traces(data_pool, template, ttimes, cli_args.max_channels)
-                correlations = Stream(traces=pool.map(eqtm.correlate_trace, data, template, ttimes.values(), streams))
+                correlations = Stream(traces=pool.map(correlate_trace, data, template, ttimes.values(), streams))
                 signal = sum(pool.map(lambda trace: eqtm.max_filter(trace.data, cli_args.maxshift), correlations))
                 template_length = max(trace.stats.npts for trace in template)
                 peaks, _ = find_peaks(signal, height=cli_args.threshold * len(correlations),
