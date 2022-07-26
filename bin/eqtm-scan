@@ -30,7 +30,7 @@ parser.add_argument("--max_channels", help="Maximum number of channels", type=in
 parser.add_argument("--lowpass", help="Lowpass filter frequency", type=float, default=3.0)
 parser.add_argument("--highpass", help="Highpass filter frequency", type=float, default=8.0)
 parser.add_argument("--threshold", help="Mean correlation peak threshold", type=float, default=0.4)
-parser.add_argument("--distance", help="Scale factor of mean correlation peak distance", type=float, default=2.0)
+parser.add_argument("--distance", help="Scale factor of mean correlation peak distance", type=float, default=1.0)
 parser.add_argument("--maxshift", help="Maximum lag in samples", type=int, default=6)
 parser.add_argument("--compression", help="Compression algorithm to use", choices=['null', 'deflate', 'snappy'],
                     default='snappy')
