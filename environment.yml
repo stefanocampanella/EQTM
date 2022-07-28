@@ -1,4 +1,4 @@
-name: correlation-detector
+name: eqtm
 channels:
   - conda-forge
   - defaults

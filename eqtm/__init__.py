@@ -11,6 +11,7 @@ from typing import Tuple, Dict, Generator
 
 import bottleneck as bn
 import numpy as np
+import scipy.signal
 import pandas as pd
 from obspy import read, Stream, Trace
 
@@ -18,9 +19,11 @@ try:
     import cupy
 
     xp = cupy
+    correlate = cupy.correlate
 except ImportError:
     cupy = None
     xp = np
+    correlate = scipy.signal.correlate
 
 
 def read_data(path: Path, freqmin: float = 3.0, freqmax: float = 8.0) -> Stream:
@@ -99,14 +102,14 @@ def find_trace(stream: Stream, trace_id: str):
             return trace
 
 
-def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nullcontext()) -> Trace:
+def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nullcontext(), method='auto') -> Trace:
     header = {"network": continuous.stats.network,
               "station": continuous.stats.station,
               "channel": continuous.stats.channel,
               "starttime": continuous.stats.starttime,
               "sampling_rate": continuous.stats.sampling_rate}
     with stream:
-        correlation = correlate_data(continuous.data, template.data)
+        correlation = correlate_data(continuous.data, template.data, method=method)
     trace = Trace(data=correlation, header=header)
 
     starttime = continuous.stats.starttime + delay
@@ -115,13 +118,13 @@ def correlate_trace(continuous: Trace, template: Trace, delay: float, stream=nul
     return trace
 
 
-def correlate_data(data: np.ndarray, template: np.ndarray) -> np.ndarray:
+def correlate_data(data: np.ndarray, template: np.ndarray, method='auto') -> np.ndarray:
     data = xp.asarray(data)
     template = xp.asarray(template)
     template -= xp.mean(template)
     pad = template.size - 1
     correlation = xp.empty_like(data)
-    correlation[:-pad] = xp.correlate(data, template, mode='valid')
+    correlation[:-pad] = correlate(data, template, mode='valid', method=method)
     correlation[-pad:] = 0.0
     norm = moving_mean(data * data, template.size)
     mean_squared = moving_mean(data, template.size)
