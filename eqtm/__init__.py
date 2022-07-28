@@ -17,9 +17,9 @@ from obspy import read, Stream, Trace
 
 try:
     import cupy
+    from cupyx.scipy.signal import correlate as correlate
 
     xp = cupy
-    correlate = cupy.correlate
 except ImportError:
     cupy = None
     xp = np
