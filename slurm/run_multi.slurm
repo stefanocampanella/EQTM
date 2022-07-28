@@ -22,18 +22,23 @@ CATALOGUE=$TEMPLATES_DIR/<CATALOGUE>
 OUTPUT_DIR=$DATA_ROOT/<OUTPUT_DIR>
 AVRO_DIR=$OUTPUT_ROOT/<AVRO>
 PARQUET_DIR=$OUTPUT_ROOT/<PARQUET>
+STATS_DIR=$OUTPUT_ROOT/<STATS>
 
 DAYS_PER_TASK=<DAYS_PER_TASK>
 
 mkdir -p "$AVRO_DIR"
 mkdir -p "$PARQUET_DIR"
+mkdir -p "$STATS_DIR"
 mapfile -t DATA_BATCH < <(find "$DATA_DIR" -type f -name "*.mseed" | sort -n | head -n $((DAYS_PER_TASK * (SLURM_ARRAY_TASK_ID + 1))) | tail -n $DAYS_PER_TASK)
 for DATA in "${DATA_BATCH[@]}"
 do
   DATA_NAME=$(basename "${DATA%.mseed}")
   AVRO=$AVRO_DIR/$DATA_NAME
   PARQUET=$PARQUET_DIR/$DATA_NAME
-  eqtm-scan "$DATA" "$TTIMES_DIR" "$TEMPLATES_DATA_DIR" "$AVRO" && eqtm-avro2parquet "$CATALOGUE" "${AVRO}.avro" "$PARQUET" &
+  STATS=$STATS_DIR/$DATA_NAME
+  srun eqtm-scan "$DATA" "$TTIMES_DIR" "$TEMPLATES_DATA_DIR" "$AVRO" && \
+  eqtm-avro2parquet "$CATALOGUE" "${AVRO}.avro" "$PARQUET" && \
+  eqtm-parquet2legacy "${PARQUET}.parquet" "$STATS" & || scontrol requeue $SLURM_JOB_ID
 done
 wait
 
