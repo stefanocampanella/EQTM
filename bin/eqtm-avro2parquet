@@ -18,6 +18,10 @@ parser.add_argument("input", help="Input file path, location of the Avro file", 
 parser.add_argument("output", help="Output file path, stem of the Parquet file", type=Path)
 parser.add_argument("--corr_atol", help="Absolute tolerance above which to consider correlations as errors",
                     type=float, default=1e-3)
+parser.add_argument("--keep_duplicates", help="Keep events with the same date (may cause duplicated indices)",
+                    default=False, action='store_true')
+parser.add_argument("--verify_integrity", help="Verify that dataframe has unique indices (may affect performance)",
+                    default=False, action='store_true')
 parser.add_argument("--log", help="Log level", default='info')
 
 cli_args = parser.parse_args()
@@ -41,8 +45,9 @@ if __name__ == '__main__':
     records = map(lambda event: eqtm.make_record(event, zmap, cli_args.ttimes), events_buffer)
     catalogue = pd.DataFrame.from_records(records)
     catalogue['date'] = pd.to_datetime(catalogue['timestamp'], unit='s', utc=True)
-    catalogue.drop_duplicates(subset=['date'], keep=False, inplace=True)
-    catalogue.set_index('date', inplace=True)
+    if not cli_args.keep_duplicates:
+        catalogue.drop_duplicates(subset=['date'], keep=False, inplace=True)
+    catalogue.set_index('date', inplace=True, verify_integrity=cli_args.verify_integrity)
     output = cli_args.output.with_suffix('.parquet')
     if output.exists():
         logging.info(f"{output} already exists, it will be overwritten")
