@@ -19,7 +19,7 @@ parser.add_argument("output", help="Output file path, stem of the Parquet file",
 parser.add_argument("--corr_atol", help="Absolute tolerance above which to consider correlations as errors",
                     type=float, default=1e-3)
 parser.add_argument("--keep_duplicates", help="Keep events with the same date (may cause duplicated indices)",
-                    default=False, action='store_true')
+                    choices=['all', 'none', 'best'], default='first')
 parser.add_argument("--verify_integrity", help="Verify that dataframe has unique indices (may affect performance)",
                     default=False, action='store_true')
 parser.add_argument("--log", help="Log level", default='info')
@@ -45,8 +45,11 @@ if __name__ == '__main__':
     records = map(lambda event: eqtm.make_record(event, zmap, cli_args.ttimes), events_buffer)
     catalogue = pd.DataFrame.from_records(records)
     catalogue['date'] = pd.to_datetime(catalogue['timestamp'], unit='s', utc=True)
-    if not cli_args.keep_duplicates:
+    if cli_args.keep_duplicates == 'none':
         catalogue.drop_duplicates(subset=['date'], keep=False, inplace=True)
+    elif cli_args.keep_duplicates == 'best':
+        catalogue.sort_values(by=['date', 'correlation_mean'], ascending=[True, False], inplace=True)
+        catalogue.drop_duplicates(subset=['date'], keep='first', inplace=True)
     catalogue.set_index('date', inplace=True, verify_integrity=cli_args.verify_integrity)
     output = cli_args.output.with_suffix('.parquet')
     if output.exists():
