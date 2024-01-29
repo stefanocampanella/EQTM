@@ -212,7 +212,7 @@ def read_zmap(catalog_path):
                               'minute',
                               'second'],
                        parse_dates={'date': ['year', 'month', 'day', 'hour', 'minute', 'second']},
-                       date_parser=lambda datestr: pd.to_datetime(datestr, format='%Y %m %d %H %M %S.%f', utc=True))
+                       date_format='%Y %m %d %H %M %S.%f')
     zmap['timestamp'] = zmap.date.map(lambda t: t.timestamp())
     zmap.drop('date', axis=1, inplace=True)
     return zmap

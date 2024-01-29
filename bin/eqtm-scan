@@ -52,7 +52,8 @@ if cupy:
 else:
     streams = [nullcontext() for _ in range(cli_args.max_channels)]
 
-with resources.path('eqtm', 'event.avsc') as schema_path:
+schema_ref = resources.files('eqtm') / 'event.avsc'
+with resources.as_file(schema_ref) as schema_path:
     schema = load_schema(schema_path)
 
 def correlate_trace(*args):

@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="eqtm",
-    version="1.5.0",
+    version="1.5.1",
     author="Stefano Campanella",
     author_email="scampanella@inogs.it",
     description="Earthquake detection in continuous waveform data using template matching",
